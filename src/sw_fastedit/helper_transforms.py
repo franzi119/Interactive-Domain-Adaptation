@@ -16,7 +16,7 @@ from monai.transforms import (
 )
 
 from sw_fastedit.click_definitions import LABELS_KEY
-from sw_fastedit.utils.helper import (  # convert_nii_to_mha,; convert_mha_to_nii,
+from sw_fastedit.utils.helper import (
     describe_batch_data,
 )
 from sw_fastedit.utils.logger import get_logger, setup_loggers
@@ -29,27 +29,15 @@ def threshold_foreground(x):
     return (x > 0.005) & (x < 0.995)
 
 
-class AbortifNaNd(MapTransform):
-    def __init__(self, keys: KeysCollection = None):
-        """
-        A transform which does nothing
-        """
-        super().__init__(keys)
-
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        for key in self.key_iterator(data):
-            assert not torch.isnan(data[key]).any()
-
-        return data
-
-
 class TrackTimed(Transform):
+    """
+    A transform that tracks and logs the execution time of another transform.
+
+    Args:
+        transform (Transform): The transform to be timed.
+    """
     def __init__(self, transform):
-        """
-        A transform which does nothing
-        """
         super().__init__()
-        # self.keys = keys
         self.transform = transform
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
@@ -59,42 +47,20 @@ class TrackTimed(Transform):
         end_time = time.perf_counter()
         total_time = end_time - start_time
         logger.info(f"-------- {self.transform.__class__.__qualname__:<20.20}() took {total_time:.3f} seconds")
-        # print(f"{self.transform.__class__.__qualname__}() took {total_time:.3f} seconds")
 
         return data
 
 
-# class SignalFillEmptyd(MapTransform):
-#     def __init__(self, keys: KeysCollection = None):
-#         """
-#         A transform which does nothing
-#         """
-#         super().__init__(keys)
-#         self.signal_fill_empty = SignalFillEmpty(replacement=0.0)
-
-#     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-#         for key in self.key_iterator(data):
-#             # tensor = None
-#             if isinstance(data[key], MetaTensor):
-#                 # tensor = data[key].array
-#                 data[key].array = self.signal_fill_empty(data[key].array)
-#             else:
-#                 # tensor = data[key]
-#                 data[key] = self.signal_fill_empty(data[key])
-#             # data_, orig_type, orig_device = convert_to_tensor(data[key], dst=torch.Tensor)
-
-
-#             # data[key] = convert_to_dst_type(tensor, dst=data[key], dtype=data[key].dtype)[0]
-#             # data[key] = convert_to_dst_type(data[key], dst=torch.Tensor)
-
-#         return data
-
-
 class CheckTheAmountOfInformationLossByCropd(MapTransform):
+    """
+    Prints information about the amount of information lost due to cropping on labeled data.
+
+    Args:
+        keys (KeysCollection): Keys to apply the transform on.
+        roi_size (Iterable): Size of the region of interest (ROI) after cropping.
+        crop_foreground (bool): Whether to crop the foreground before the main crop. Default is True.
+    """
     def __init__(self, keys: KeysCollection, roi_size: Iterable, crop_foreground=True):
-        """
-        Prints how much information is lost due to the crop.
-        """
         super().__init__(keys)
         self.roi_size = roi_size
         self.crop_foreground = crop_foreground
@@ -122,7 +88,6 @@ class CheckTheAmountOfInformationLossByCropd(MapTransform):
 
                     cropped_label = Compose(t)(new_data)["label"]
 
-                    # label_num_el = torch.numel(label)
                     for idx, (key_label, _) in enumerate(labels.items(), start=1):
                         # Only count non-background lost labels
                         if key_label != "background":
@@ -143,78 +108,22 @@ class CheckTheAmountOfInformationLossByCropd(MapTransform):
         return data
 
 
-class PrintDatad(MapTransform):
-    def __init__(
-        self,
-        keys: KeysCollection = None,
-        allow_missing_keys: bool = False,
-    ):
-        """
-        Prints all the information inside data
-        """
-        super().__init__(keys, allow_missing_keys=allow_missing_keys)
-
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        global logger
-        if self.keys is not None and (None not in self.keys and len(self.keys) == 1):
-            data_sub_dict = {key: data[key] for key in self.key_iterator(data)}
-        else:
-            data_sub_dict = data
-
-        try:
-            logger.info(describe_batch_data(data_sub_dict))
-        except UnboundLocalError:
-            logger = logging.getLogger("sw_fastedit")
-            logger.info(describe_batch_data(data_sub_dict))
-
-        return data
-
-
-class PrintGPUUsaged(MapTransform):
-    def __init__(self, device, keys: KeysCollection = None, name=""):
-        """
-        Prints the GPU usage
-        """
-        super().__init__(keys)
-        self.device = device
-        self.name = name
-
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:        
-        if logger is not None:
-            logger.info(
-                f"{self.name}::Current reserved memory for dataloader: {torch.cuda.memory_reserved(self.device) / (1024**3)} GB"
-            )
-        return data
-
-
-class ClearGPUMemoryd(MapTransform):
-    def __init__(self, device, keys: KeysCollection = None, garbage_collection: bool = True):
-        """
-        Prints the GPU usage
-        """
-        super().__init__(keys)
-        self.device = device
-        self.garbage_collection = garbage_collection
-
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        if self.garbage_collection:
-            gc.collect()
-        torch.cuda.empty_cache()
-        if logger is not None:
-            logger.info(
-                f"Current reserved memory for dataloader: {torch.cuda.memory_reserved(self.device) / (1024**3)} GB"
-            )
-        return data
 
 
 class InitLoggerd(MapTransform):
-    def __init__(self, loglevel=logging.INFO, no_log=True, log_dir=None):
-        """
-        Initialises the logger inside the dataloader thread (if it is a separate thread).
-        This is only necessary if the data loading is done in multiple threads / processes.
+    """
+    Initializes the logger inside the dataloader thread.
 
-        Otherwise no log messages get print.
-        """
+    Args:
+        loglevel (int): Logging level. Default is logging.INFO.
+        no_log (bool): Whether to disable logging. Default is True.
+        log_dir (str): Directory to save log files. Default is None.
+
+    Note:
+        If `no_log` is True, logging will be disabled, and `log_dir` will be ignored.
+    """
+    def __init__(self, loglevel=logging.INFO, no_log=True, log_dir=None):
+
         global logger
         super().__init__(None)
 

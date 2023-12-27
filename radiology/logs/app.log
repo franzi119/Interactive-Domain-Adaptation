@@ -1,0 +1,273 @@
+[2023-12-12 14:23:30,040] [12892] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 14:23:31,701] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 14:23:31,744] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 14:23:31,748] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 14:23:31,751] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-12 14:23:31,755] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-12 14:23:31,759] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-12 14:23:31,768] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-12 14:23:31,772] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-12 14:23:31,776] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-12 14:23:31,780] [12892] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-12 14:23:31,781] [12892] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-12 14:23:32,181] [12892] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-12 14:23:32,182] [12892] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-12 14:23:32,183] [12892] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-12 14:23:32,299] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_81 => tumor_81.nii.gz
+[2023-12-12 14:23:32,300] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_69 => tumor_69.nii.gz
+[2023-12-12 14:23:32,301] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_94 => tumor_94.nii.gz
+[2023-12-12 14:23:32,302] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_49 => tumor_49.nii.gz
+[2023-12-12 14:23:32,302] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_100 => tumor_100.nii.gz
+[2023-12-12 14:23:32,303] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_50 => tumor_50.nii.gz
+[2023-12-12 14:23:32,304] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_47 => tumor_47.nii.gz
+[2023-12-12 14:23:32,304] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_28 => tumor_28.nii.gz
+[2023-12-12 14:23:32,305] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_58 => tumor_58.nii.gz
+[2023-12-12 14:23:32,306] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_102 => tumor_102.nii.gz
+[2023-12-12 14:23:32,306] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_6 => tumor_6.nii.gz
+[2023-12-12 14:23:32,307] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_71 => tumor_71.nii.gz
+[2023-12-12 14:23:32,308] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_62 => tumor_62.nii.gz
+[2023-12-12 14:23:32,308] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_25 => tumor_25.nii.gz
+[2023-12-12 14:23:32,309] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_72 => tumor_72.nii.gz
+[2023-12-12 14:23:32,309] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_99 => tumor_99.nii.gz
+[2023-12-12 14:23:32,310] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_27 => tumor_27.nii.gz
+[2023-12-12 14:23:32,310] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_87 => tumor_87.nii.gz
+[2023-12-12 14:23:32,311] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_75 => tumor_75.nii.gz
+[2023-12-12 14:23:32,311] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_19 => tumor_19.nii.gz
+[2023-12-12 14:23:32,312] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_61 => tumor_61.nii.gz
+[2023-12-12 14:23:32,312] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_20 => tumor_20.nii.gz
+[2023-12-12 14:23:32,313] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_74 => tumor_74.nii.gz
+[2023-12-12 14:23:32,314] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_2 => tumor_2.nii.gz
+[2023-12-12 14:23:32,314] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_32 => tumor_32.nii.gz
+[2023-12-12 14:23:32,315] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_83 => tumor_83.nii.gz
+[2023-12-12 14:23:32,316] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_79 => tumor_79.nii.gz
+[2023-12-12 14:23:32,316] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_0 => tumor_0.nii.gz
+[2023-12-12 14:23:32,317] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_7 => tumor_7.nii.gz
+[2023-12-12 14:23:32,317] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_66 => tumor_66.nii.gz
+[2023-12-12 14:23:32,318] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_1 => tumor_1.nii.gz
+[2023-12-12 14:23:32,319] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_59 => tumor_59.nii.gz
+[2023-12-12 14:23:32,319] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_14 => tumor_14.nii.gz
+[2023-12-12 14:23:32,320] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_84 => tumor_84.nii.gz
+[2023-12-12 14:23:32,321] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_43 => tumor_43.nii.gz
+[2023-12-12 14:23:32,321] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_65 => tumor_65.nii.gz
+[2023-12-12 14:23:32,322] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_11 => tumor_11.nii.gz
+[2023-12-12 14:23:32,323] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_95 => tumor_95.nii.gz
+[2023-12-12 14:23:32,323] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_4 => tumor_4.nii.gz
+[2023-12-12 14:23:32,324] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_3 => tumor_3.nii.gz
+[2023-12-12 14:23:32,324] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_40 => tumor_40.nii.gz
+[2023-12-12 14:23:32,325] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_101 => tumor_101.nii.gz
+[2023-12-12 14:23:32,326] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_39 => tumor_39.nii.gz
+[2023-12-12 14:23:32,326] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_104 => tumor_104.nii.gz
+[2023-12-12 14:23:32,327] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_35 => tumor_35.nii.gz
+[2023-12-12 14:23:32,327] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_29 => tumor_29.nii.gz
+[2023-12-12 14:23:32,328] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_21 => tumor_21.nii.gz
+[2023-12-12 14:23:32,328] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_37 => tumor_37.nii.gz
+[2023-12-12 14:23:32,329] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_18 => tumor_18.nii.gz
+[2023-12-12 14:23:32,329] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_97 => tumor_97.nii.gz
+[2023-12-12 14:23:32,330] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_48 => tumor_48.nii.gz
+[2023-12-12 14:23:32,330] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_24 => tumor_24.nii.gz
+[2023-12-12 14:23:32,331] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_77 => tumor_77.nii.gz
+[2023-12-12 14:23:32,332] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_76 => tumor_76.nii.gz
+[2023-12-12 14:23:32,332] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_85 => tumor_85.nii.gz
+[2023-12-12 14:23:32,333] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_92 => tumor_92.nii.gz
+[2023-12-12 14:23:32,334] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_82 => tumor_82.nii.gz
+[2023-12-12 14:23:32,334] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_89 => tumor_89.nii.gz
+[2023-12-12 14:23:32,335] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_64 => tumor_64.nii.gz
+[2023-12-12 14:23:32,336] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_73 => tumor_73.nii.gz
+[2023-12-12 14:23:32,336] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_13 => tumor_13.nii.gz
+[2023-12-12 14:23:32,337] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_23 => tumor_23.nii.gz
+[2023-12-12 14:23:32,337] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_57 => tumor_57.nii.gz
+[2023-12-12 14:23:32,338] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_26 => tumor_26.nii.gz
+[2023-12-12 14:23:32,339] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_44 => tumor_44.nii.gz
+[2023-12-12 14:23:32,339] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_34 => tumor_34.nii.gz
+[2023-12-12 14:23:32,340] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_17 => tumor_17.nii.gz
+[2023-12-12 14:23:32,341] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_67 => tumor_67.nii.gz
+[2023-12-12 14:23:32,341] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_80 => tumor_80.nii.gz
+[2023-12-12 14:23:32,342] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_42 => tumor_42.nii.gz
+[2023-12-12 14:23:32,342] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_51 => tumor_51.nii.gz
+[2023-12-12 14:23:32,343] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_31 => tumor_31.nii.gz
+[2023-12-12 14:23:32,344] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_68 => tumor_68.nii.gz
+[2023-12-12 14:23:32,344] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_90 => tumor_90.nii.gz
+[2023-12-12 14:23:32,345] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_12 => tumor_12.nii.gz
+[2023-12-12 14:23:32,346] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_63 => tumor_63.nii.gz
+[2023-12-12 14:23:32,346] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_10 => tumor_10.nii.gz
+[2023-12-12 14:23:32,347] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_88 => tumor_88.nii.gz
+[2023-12-12 14:23:32,347] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_56 => tumor_56.nii.gz
+[2023-12-12 14:23:32,348] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_9 => tumor_9.nii.gz
+[2023-12-12 14:23:32,348] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_78 => tumor_78.nii.gz
+[2023-12-12 14:23:32,349] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_55 => tumor_55.nii.gz
+[2023-12-12 14:23:32,350] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_36 => tumor_36.nii.gz
+[2023-12-12 14:23:32,350] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_33 => tumor_33.nii.gz
+[2023-12-12 14:23:32,351] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_8 => tumor_8.nii.gz
+[2023-12-12 14:23:32,352] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_5 => tumor_5.nii.gz
+[2023-12-12 14:23:32,352] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_22 => tumor_22.nii.gz
+[2023-12-12 14:23:32,353] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_54 => tumor_54.nii.gz
+[2023-12-12 14:23:32,354] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_91 => tumor_91.nii.gz
+[2023-12-12 14:23:32,354] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_45 => tumor_45.nii.gz
+[2023-12-12 14:23:32,355] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_93 => tumor_93.nii.gz
+[2023-12-12 14:23:32,355] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_15 => tumor_15.nii.gz
+[2023-12-12 14:23:32,356] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_86 => tumor_86.nii.gz
+[2023-12-12 14:23:32,357] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_70 => tumor_70.nii.gz
+[2023-12-12 14:23:32,357] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_16 => tumor_16.nii.gz
+[2023-12-12 14:23:32,358] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_98 => tumor_98.nii.gz
+[2023-12-12 14:23:32,359] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_52 => tumor_52.nii.gz
+[2023-12-12 14:23:32,360] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_41 => tumor_41.nii.gz
+[2023-12-12 14:23:32,360] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_38 => tumor_38.nii.gz
+[2023-12-12 14:23:32,361] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_60 => tumor_60.nii.gz
+[2023-12-12 14:23:32,362] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_53 => tumor_53.nii.gz
+[2023-12-12 14:23:32,362] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_96 => tumor_96.nii.gz
+[2023-12-12 14:23:32,363] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_46 => tumor_46.nii.gz
+[2023-12-12 14:23:32,364] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_30 => tumor_30.nii.gz
+[2023-12-12 14:23:32,365] [12892] [MainThread] [INFO] (monailabel.datastore.local:594) - Adding New Image: tumor_103 => tumor_103.nii.gz
+[2023-12-12 14:23:32,375] [12892] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 105
+[2023-12-12 14:23:32,411] [12892] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-12 14:27:41,598] [13094] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 14:27:43,200] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 14:27:43,218] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 14:27:43,219] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 14:27:43,238] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-12 14:27:43,240] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-12 14:27:43,242] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-12 14:27:43,249] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-12 14:27:43,251] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-12 14:27:43,253] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-12 14:27:43,254] [13094] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-12 14:27:43,255] [13094] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-12 14:27:43,613] [13094] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-12 14:27:43,614] [13094] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-12 14:27:43,615] [13094] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-12 14:27:43,654] [13094] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-12 14:27:43,655] [13094] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-12 14:31:43,387] [13318] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 14:31:44,994] [13318] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 14:31:45,011] [13318] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 14:31:45,013] [13318] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 14:33:12,432] [13522] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 15:46:42,209] [28329] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 15:46:42,397] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 15:46:42,412] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 15:46:42,414] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 15:46:42,425] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-12 15:46:42,426] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-12 15:46:42,428] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-12 15:46:42,434] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-12 15:46:42,435] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-12 15:46:42,437] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-12 15:46:42,438] [28329] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-12 15:46:42,439] [28329] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-12 15:46:42,871] [28329] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-12 15:46:42,872] [28329] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-12 15:46:42,873] [28329] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-12 15:46:42,915] [28329] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-12 15:46:42,916] [28329] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-12 17:05:06,119] [21311] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 17:05:16,699] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 17:05:16,735] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 17:05:16,736] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 17:05:16,738] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-12 17:05:16,740] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-12 17:05:16,743] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-12 17:05:16,755] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-12 17:05:16,758] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-12 17:05:16,759] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-12 17:05:16,761] [21311] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-12 17:05:16,762] [21311] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-12 17:05:17,081] [21311] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-12 17:05:17,082] [21311] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-12 17:05:17,083] [21311] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-12 17:05:17,156] [21311] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-12 17:05:17,157] [21311] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-12 17:05:17,199] [21311] [MainThread] [INFO] (main:126) - +++ Adding Inferer:: sw_fastedit => <lib.infers.sw_fastedit.SWFastEdit object at 0x7f0a5b554c70>
+[2023-12-12 17:05:17,200] [21311] [MainThread] [INFO] (main:126) - +++ Adding Inferer:: sw_fastedit_seg => <lib.infers.sw_fastedit.SWFastEdit object at 0x7f0adf47feb0>
+[2023-12-12 17:05:17,201] [21311] [MainThread] [INFO] (main:191) - {'sw_fastedit': <lib.infers.sw_fastedit.SWFastEdit object at 0x7f0a5b554c70>, 'sw_fastedit_seg': <lib.infers.sw_fastedit.SWFastEdit object at 0x7f0adf47feb0>, 'Histogram+GraphCut': <monailabel.scribbles.infer.HistogramBasedGraphCut object at 0x7f0a5b463e80>, 'GMM+GraphCut': <monailabel.scribbles.infer.GMMBasedGraphCut object at 0x7f0a5b463cd0>}
+[2023-12-12 17:05:17,202] [21311] [MainThread] [INFO] (monailabel.utils.sessions:51) - Session Path: /home/zmarinov/.cache/monailabel/sessions
+[2023-12-12 17:05:17,202] [21311] [MainThread] [INFO] (monailabel.utils.sessions:52) - Session Expiry (max): 3600
+[2023-12-12 17:05:17,203] [21311] [MainThread] [INFO] (monailabel.interfaces.app:469) - App Init - completed
+[2023-12-12 17:05:17,204] [21311] [MainThread] [INFO] (timeloop:60) - Starting Timeloop..
+[2023-12-12 17:05:17,205] [21311] [MainThread] [INFO] (timeloop:42) - Registered job <function MONAILabelApp.on_init_complete.<locals>.run_scheduler at 0x7f0a5b55d4c0>
+[2023-12-12 17:05:17,205] [21311] [MainThread] [INFO] (timeloop:63) - Timeloop now started. Jobs will run based on the interval set
+[2023-12-12 17:07:18,849] [8121] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 17:07:19,052] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 17:07:19,077] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 17:07:19,078] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 17:07:19,080] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-12 17:07:19,082] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-12 17:07:19,083] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-12 17:07:19,093] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-12 17:07:19,095] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-12 17:07:19,096] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-12 17:07:19,099] [8121] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-12 17:07:19,099] [8121] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-12 17:07:19,518] [8121] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-12 17:07:19,519] [8121] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-12 17:07:19,520] [8121] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-12 17:07:19,583] [8121] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-12 17:07:19,583] [8121] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-12 17:07:41,355] [8270] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-12 17:07:41,445] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-12 17:07:41,460] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-12 17:07:41,461] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-12 17:07:41,463] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-12 17:07:41,464] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-12 17:07:41,466] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-12 17:07:41,471] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-12 17:07:41,473] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-12 17:07:41,474] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-12 17:07:41,476] [8270] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-12 17:07:41,476] [8270] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-12 17:07:41,830] [8270] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-12 17:07:41,831] [8270] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-12 17:07:41,832] [8270] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-12 17:07:41,872] [8270] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-12 17:07:41,873] [8270] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-13 11:48:57,137] [16281] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-13 11:49:08,012] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-13 11:49:08,030] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-13 11:49:08,032] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-13 11:49:08,033] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-13 11:49:08,035] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-13 11:49:08,036] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-13 11:49:08,043] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-13 11:49:08,045] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-13 11:49:08,046] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-13 11:49:08,048] [16281] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-13 11:49:08,049] [16281] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-13 11:49:08,366] [16281] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-13 11:49:08,366] [16281] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-13 11:49:08,367] [16281] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-13 11:49:08,414] [16281] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-13 11:49:08,414] [16281] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-13 11:49:08,458] [16281] [MainThread] [INFO] (main:126) - +++ Adding Inferer:: sw_fastedit => <lib.infers.sw_fastedit.SWFastEdit object at 0x7fe8553cbb80>
+[2023-12-13 11:49:08,459] [16281] [MainThread] [INFO] (main:126) - +++ Adding Inferer:: sw_fastedit_seg => <lib.infers.sw_fastedit.SWFastEdit object at 0x7fe8cf2d2bb0>
+[2023-12-13 11:49:08,459] [16281] [MainThread] [INFO] (main:191) - {'sw_fastedit': <lib.infers.sw_fastedit.SWFastEdit object at 0x7fe8553cbb80>, 'sw_fastedit_seg': <lib.infers.sw_fastedit.SWFastEdit object at 0x7fe8cf2d2bb0>, 'Histogram+GraphCut': <monailabel.scribbles.infer.HistogramBasedGraphCut object at 0x7fe8552d9d90>, 'GMM+GraphCut': <monailabel.scribbles.infer.GMMBasedGraphCut object at 0x7fe8552d9be0>}
+[2023-12-13 11:49:08,460] [16281] [MainThread] [INFO] (monailabel.utils.sessions:51) - Session Path: /home/zmarinov/.cache/monailabel/sessions
+[2023-12-13 11:49:08,460] [16281] [MainThread] [INFO] (monailabel.utils.sessions:52) - Session Expiry (max): 3600
+[2023-12-13 11:49:08,461] [16281] [MainThread] [INFO] (monailabel.interfaces.app:469) - App Init - completed
+[2023-12-13 11:49:08,461] [16281] [MainThread] [INFO] (timeloop:60) - Starting Timeloop..
+[2023-12-13 11:49:08,462] [16281] [MainThread] [INFO] (timeloop:42) - Registered job <function MONAILabelApp.on_init_complete.<locals>.run_scheduler at 0x7fe8553d44c0>
+[2023-12-13 11:49:08,463] [16281] [MainThread] [INFO] (timeloop:63) - Timeloop now started. Jobs will run based on the interval set
+[2023-12-14 14:49:19,159] [1615] [MainThread] [INFO] (monailabel.interfaces.utils.app:37) - Initializing App from: /home/zmarinov/repos/AutoPET2-Submission/radiology; studies: /cvhci/data/AutoPET/AutoPET/imagesTs; conf: {'models': 'sw_fastedit'}
+[2023-12-14 14:49:28,674] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for MONAILabelApp Found: <class 'main.MyApp'>
+[2023-12-14 14:49:28,743] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_2d.Deepgrow2D'>
+[2023-12-14 14:49:28,745] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_spine.LocalizationSpine'>
+[2023-12-14 14:49:28,826] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.sw_fastedit.SWFastEditConfig'>
+[2023-12-14 14:49:28,827] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepgrow_3d.Deepgrow3D'>
+[2023-12-14 14:49:28,829] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation.Segmentation'>
+[2023-12-14 14:49:28,837] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.deepedit.DeepEdit'>
+[2023-12-14 14:49:28,839] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.localization_vertebra.LocalizationVertebra'>
+[2023-12-14 14:49:28,840] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_spleen.SegmentationSpleen'>
+[2023-12-14 14:49:28,842] [1615] [MainThread] [INFO] (monailabel.utils.others.class_utils:57) - Subclass for TaskConfig Found: <class 'lib.configs.segmentation_vertebra.SegmentationVertebra'>
+[2023-12-14 14:49:28,843] [1615] [MainThread] [INFO] (main:93) - +++ Adding Model: sw_fastedit => lib.configs.sw_fastedit.SWFastEditConfig
+[2023-12-14 14:49:29,152] [1615] [MainThread] [INFO] (main:96) - +++ Using Models: ['sw_fastedit']
+[2023-12-14 14:49:29,169] [1615] [MainThread] [INFO] (monailabel.interfaces.app:135) - Init Datastore for: /cvhci/data/AutoPET/AutoPET/imagesTs
+[2023-12-14 14:49:29,171] [1615] [MainThread] [INFO] (monailabel.datastore.local:130) - Auto Reload: True; Extensions: ['*.nii.gz', '*.nii', '*.nrrd', '*.jpg', '*.png', '*.tif', '*.svs', '*.xml']
+[2023-12-14 14:49:29,691] [1615] [MainThread] [INFO] (monailabel.datastore.local:577) - Invalidate count: 0
+[2023-12-14 14:49:29,691] [1615] [MainThread] [INFO] (monailabel.datastore.local:151) - Start observing external modifications on datastore (AUTO RELOAD)
+[2023-12-14 14:49:29,891] [1615] [MainThread] [INFO] (main:126) - +++ Adding Inferer:: sw_fastedit => <lib.infers.sw_fastedit.SWFastEdit object at 0x7fb21f05dca0>
+[2023-12-14 14:49:29,891] [1615] [MainThread] [INFO] (main:126) - +++ Adding Inferer:: sw_fastedit_seg => <lib.infers.sw_fastedit.SWFastEdit object at 0x7fb292f15ee0>
+[2023-12-14 14:49:29,892] [1615] [MainThread] [INFO] (main:191) - {'sw_fastedit': <lib.infers.sw_fastedit.SWFastEdit object at 0x7fb21f05dca0>, 'sw_fastedit_seg': <lib.infers.sw_fastedit.SWFastEdit object at 0x7fb292f15ee0>, 'Histogram+GraphCut': <monailabel.scribbles.infer.HistogramBasedGraphCut object at 0x7fb202e83eb0>, 'GMM+GraphCut': <monailabel.scribbles.infer.GMMBasedGraphCut object at 0x7fb202e83d00>}
+[2023-12-14 14:49:29,893] [1615] [MainThread] [INFO] (monailabel.utils.sessions:51) - Session Path: /home/zmarinov/.cache/monailabel/sessions
+[2023-12-14 14:49:29,894] [1615] [MainThread] [INFO] (monailabel.utils.sessions:52) - Session Expiry (max): 3600
+[2023-12-14 14:49:29,894] [1615] [MainThread] [INFO] (monailabel.interfaces.app:469) - App Init - completed
+[2023-12-14 14:49:29,896] [1615] [MainThread] [INFO] (timeloop:60) - Starting Timeloop..
+[2023-12-14 14:49:29,897] [1615] [MainThread] [INFO] (timeloop:42) - Registered job <function MONAILabelApp.on_init_complete.<locals>.run_scheduler at 0x7fb21f066430>
+[2023-12-14 14:49:29,897] [1615] [MainThread] [INFO] (timeloop:63) - Timeloop now started. Jobs will run based on the interval set

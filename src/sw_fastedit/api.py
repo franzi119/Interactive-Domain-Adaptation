@@ -68,19 +68,55 @@ output_dir = None
 
 
 def get_optimizer(optimizer: str, lr: float, network):
-    # OPTIMIZER
+    """
+    Get an optimizer for the given neural network.
+
+    Parameters:
+        optimizer (str): The optimizer to use. Options: "Novograd" or "Adam" (default).
+        lr (float): The learning rate for the optimizer.
+        network: The neural network for which the optimizer is created.
+
+    Returns:
+        torch.optim.Optimizer: An instance of the specified optimizer with the provided learning rate.
+
+    Example:
+        # Get an Adam optimizer with a learning rate of 0.001 for a neural network
+        optimizer = get_optimizer("Adam", 0.001, my_neural_network)
+    """
     if optimizer == "Novograd":
         optimizer = Novograd(network.parameters(), lr)
-    elif optimizer == "Adam":  # default
+    elif optimizer == "Adam":
         optimizer = torch.optim.Adam(network.parameters(), lr)
     return optimizer
 
 
-def get_loss_function(loss_args, loss_kwargs=None):  # squared_pred=True, include_background=True):
+def get_loss_function(loss_args, loss_kwargs=None):
+    """
+    Get a loss function for a semantic segmentation task.
+
+    Parameters:
+        loss_args (str): The type of loss function. Options: "DiceCELoss" or "DiceLoss".
+        loss_kwargs (dict, optional): Additional keyword arguments for the loss function.
+        Default loss_kwargs: {squared_pred: True, include_background:True}
+        -   squared_pred enables faster convergence, possibly even better results in the long run
+
+    Returns:
+        torch.nn.modules.loss: A callable instance of the specified loss function.
+
+    Example:
+        # Get a DiceCELoss with default arguments
+        loss_fn = get_loss_function("DiceCELoss")
+
+        # Get a DiceLoss with custom arguments
+        custom_loss_kwargs = {"squared_pred": False, "include_background": False}
+        loss_fn_custom = get_loss_function("DiceLoss", loss_kwargs=custom_loss_kwargs)
+
+    TODO Franzi:
+        # Define the Losses from the paper (L_ext, L_seg, L_d, L_adv)
+    """
     if loss_kwargs is None:
         loss_kwargs = {}
     if loss_args == "DiceCELoss":
-        # squared_pred enables faster convergence, possibly even better results in the long run
         loss_function = DiceCELoss(to_onehot_y=True, softmax=True, **loss_kwargs)
     elif loss_args == "DiceLoss":
         loss_function = DiceLoss(to_onehot_y=True, softmax=True, **loss_kwargs)
@@ -88,18 +124,40 @@ def get_loss_function(loss_args, loss_kwargs=None):  # squared_pred=True, includ
 
 
 def get_network(network_str: str, labels: Iterable, non_interactive: bool = False):
+
     """
-    in_channels: 1 slice for the image, the other ones for the signal per label whereas each signal is the size of image.
-        The signal is only added for interactive runs of this code.
-    out_channels: amount of labels
+    Get a network for semantic segmentation.
+
+    Parameters:
+        network_str (str): The type of network. Options: "dynunet", "smalldynunet", "bigdynunet", "hugedynunet".
+        labels (Iterable): List of label names.
+        non_interactive (bool, optional): Flag indicating whether the network is used in non-interactive mode.
+
+    Returns:
+        nn.Module: An instance of the specified U-Net-based neural network.
+
+    Additional Information:
+        in_channels (int): The input channels for the network. For interactive runs, it is 1 + len(labels),
+            where each additional channel represents a guidance signal per label with the size of the image.
+            For non-interactive runs, it is 1, representing the image.
+        out_channels (int): The number of output channels, equal to len(labels).
+
+    Example:
+        # Get a DynUNet with default configuration
+        my_labels = ["tumor", "background"]
+        unet_model = get_network("dynunet", my_labels)
+
+    TODO Franzi:
+        # Define the model architecture as in the paper
     """
+
+
     in_channels = 1 if non_interactive else 1 + len(labels)
     out_channels = len(labels)
 
     if network_str == "dynunet":
         network = DynUNet(
             spatial_dims=3,
-            #
             in_channels=in_channels,
             out_channels=out_channels,
             kernel_size=[3, 3, 3, 3, 3, 3],
@@ -129,23 +187,6 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
             kernel_size=[3, 3, 3, 3, 3, 3, 3],
             strides=[1, 2, 2, 2, 2, 2, [2, 2, 1]],
             upsample_kernel_size=[2, 2, 2, 2, 2, [2, 2, 1]],
-            # filters=[64, 96, 128, 192, 256, 384, 512],#, 768, 1024, 2048],
-            # dropout=0.1,
-            norm_name="instance",
-            deep_supervision=False,
-            res_block=True,
-        )
-    # No good results with this dynunet so far
-    elif network_str == "hugedynunet":
-        network = DynUNet(
-            spatial_dims=3,
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=[3, 3, 3, 3, 3, 3, 3],
-            strides=[1, 2, 2, 2, 2, 2, 2],
-            upsample_kernel_size=[2, 2, 2, 2, 2, 2],
-            filters=[32, 64, 128, 192, 256, 384, 512],  # , 768, 1024, 2048],
-            dropout=0.1,
             norm_name="instance",
             deep_supervision=False,
             res_block=True,
@@ -171,6 +212,25 @@ def get_inferers(
     device="cpu",
     sw_cpu_output=False,
 ):
+    """
+    Retrieves training and evaluation inferers based on the specified inference strategy.
+
+    Args:
+        inferer (str): The type of inferer, either "SimpleInferer" or "SlidingWindowInferer".
+        sw_roi_size: Region of interest size for the sliding window strategy.
+        train_crop_size: Crop size for training data.
+        val_crop_size: Crop size for validation data.
+        train_sw_batch_size: Batch size for training with sliding window.
+        val_sw_batch_size: Batch size for validation with sliding window.
+        train_sw_overlap (float, optional): SW-overlap ratio for training with sliding window (default is 0.25).
+        val_sw_overlap (float, optional): SW-overlap ratio for validation with sliding window (default is 0.25).
+        cache_roi_weight_map (bool, optional): Whether to pre-compute the ROI weight map. (default is True).
+        device (str, optional): Device for computation, e.g., "cpu" or "cuda" (default is "cpu").
+        sw_cpu_output (bool, optional): Enable sliding window output on the CPU (default is False).
+
+    Returns:
+        Tuple[Inferer, Inferer]: Training and evaluation inferers based on the specified strategy.
+    """
     if inferer == "SimpleInferer":
         train_inferer = SimpleInferer()
         eval_inferer = SimpleInferer()
@@ -188,7 +248,7 @@ def get_inferers(
             ),
         )
         logger.info(f"{train_batch_size=}")
-        average_sample_shape = (300, 300, 400)
+        average_sample_shape = (300, 300, 400) # AutoPET specific!
         if val_crop_size is not None:
             average_sample_shape = val_crop_size
 
@@ -222,8 +282,23 @@ def get_inferers(
 
 
 def get_scheduler(optimizer, scheduler_str: str, epochs_to_run: int):
+    """
+    Retrieves a learning rate scheduler based on the specified scheduler strategy.
+
+    Args:
+        optimizer: The optimizer for which the scheduler will be used.
+        scheduler_str (str): The type of scheduler, one of "MultiStepLR", "PolynomialLR", or "CosineAnnealingLR".
+        epochs_to_run (int): The total number of epochs to run during training.
+
+    Returns:
+        torch.optim.lr_scheduler._LRScheduler: A learning rate scheduler instance based on the chosen strategy.
+
+    Raises:
+        ValueError: If an unsupported scheduler type is provided.
+    """
+
     if scheduler_str == "MultiStepLR":
-        steps = 4
+        steps = 4 # AutoPET specific!
         steps_per_epoch = round(epochs_to_run / steps)
         if steps_per_epoch < 1:
             logger.error(f"Chosen number of epochs {epochs_to_run}/{steps} < 0")
@@ -239,10 +314,36 @@ def get_scheduler(optimizer, scheduler_str: str, epochs_to_run: int):
 
 
 def get_val_handlers(sw_roi_size: List, inferer: str, gpu_size: str, *,garbage_collector=True, non_interactive=False):
+    """
+    Retrieves a list of event handlers for validation in a MONAI training workflow.
+
+    Args:
+        sw_roi_size (List): The region of interest size for the sliding window strategy.
+        inferer (str): The type of inferer, e.g., "SimpleInferer" or "SlidingWindowInferer".
+        gpu_size (str): The GPU size, one of "large" or any other value, e.g., "small".
+        garbage_collector (bool, optional): Whether to include the GarbageCollector event handler (default is True).
+        non_interactive (bool, optional): Whether the training loop is non-interactive, e.g., without clicks (default is False).
+
+    Returns:
+        List[Event_Handler]: A list of event handlers for validation in a MONAI training workflow.
+
+    Notes:
+        - The returned list includes a StatsHandler and an optional GarbageCollector event handler.
+        - The GarbageCollector event handler is triggered based on the provided parameters.
+
+    Raises:
+        ValueError: If an unsupported inferer type is provided.
+
+    References:
+        [1] https://github.com/Project-MONAI/MONAI/issues/3423
+
+    TODO Franzi:
+        # Set the iterations = 1 and it is done
+    """
     every_x_iterations = 2
     if non_interactive:
         every_x_iterations *= 10
-    
+
     if sw_roi_size[0] < 128:
         val_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
     else:
@@ -273,13 +374,43 @@ def get_train_handlers(
     garbage_collector=True,
     non_interactive=False,
 ):
+    """
+    Retrieves a list of event handlers for training in a MONAI training workflow.
+
+    Args:
+        lr_scheduler: The learning rate scheduler for the optimizer.
+        evaluator: The evaluator for validation during training.
+        val_freq: The frequency of validation in terms of iterations or epochs.
+        eval_only (bool): Flag indicating if training is for evaluation only.
+        sw_roi_size (List): The region of interest size for the sliding window strategy.
+        inferer (str): The type of inferer, e.g., "SimpleInferer" or "SlidingWindowInferer".
+        gpu_size (str): The GPU size, one of "large" or any other value.
+        garbage_collector (bool, optional): Whether to include the GarbageCollector event handler (default is True).
+        non_interactive (bool, optional): Whether the environment is non-interactive (default is False).
+
+    Returns:
+        List[Event_Handler]: A list of event handlers for training in a MONAI training workflow.
+
+    Notes:
+        - The returned list includes an LrScheduleHandler, ValidationHandler, StatsHandler, and an optional GarbageCollector event handler.
+        - The GarbageCollector event handler is triggered based on the provided parameters.
+
+    Raises:
+        ValueError: If an unsupported inferer type is provided.
+
+    References:
+        [1] https://github.com/Project-MONAI/MONAI/issues/3423
+
+    TODO Franzi:
+        # Set the iterations = 1 and it is done
+    """
     every_x_iterations = 4
     if non_interactive:
         every_x_iterations *= 10
-    
+
     if sw_roi_size[0] <= 128:
         train_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
-    else:        
+    else:
         train_trigger_event = (
             Events.ITERATION_COMPLETED(every=every_x_iterations*2) if gpu_size == "large" else Events.ITERATION_COMPLETED(every=every_x_iterations)
         )
@@ -304,6 +435,18 @@ def get_train_handlers(
 
 
 def get_key_metric(str_to_prepend="") -> OrderedDict:
+    """
+    Retrieves key metrics, particularly Mean Dice, for use in a MONAI training workflow.
+
+    Args:
+        str_to_prepend (str, optional): A string to prepend to the metric name (default is an empty string).
+
+    Returns:
+        OrderedDict: An ordered dictionary containing key metrics for training and evaluation.
+
+    TODO Franzi:
+        # Add MXA
+    """
     key_metrics = OrderedDict()
     key_metrics[f"{str_to_prepend}dice"] = MeanDice(
         output_transform=from_engine(["pred", "label"]), include_background=False, save_details=False
@@ -312,12 +455,31 @@ def get_key_metric(str_to_prepend="") -> OrderedDict:
 
 
 def get_additional_metrics(labels, include_background=False, loss_kwargs=None, str_to_prepend=""):
-    # loss_function_metric = loss_function
+    """
+    Retrieves additional metrics, including DiceCELoss and SurfaceDiceMetric, for use in a MONAI training workflow.
+
+    Args:
+        labels: A list of class labels for the segmentation task.
+        include_background (bool, optional): Whether to include a background class in the metric computation (default is False).
+        loss_kwargs (dict, optional): Additional keyword arguments for configuring the loss function (default is None).
+        str_to_prepend (str, optional): A string to prepend to the metric names (default is an empty string).
+
+    Returns:
+        OrderedDict: An ordered dictionary containing additional metrics for evaluation.
+
+    Notes:
+        - The returned dictionary includes metrics for DiceCELoss and SurfaceDiceMetric.
+        - The metric names can be customized by providing a string to prepend.
+        - Loss function and SurfaceDiceMetric are configured with specific parameters.
+
+    TODO Franzi:
+        # Or add MXA here
+    """
     if loss_kwargs is None:
         loss_kwargs = {}
     mid = "with_bg_" if include_background else "without_bg_"
     loss_function = DiceCELoss(softmax=True, **loss_kwargs)
-    # loss_function_metric = LossMetric(loss_fn=loss_function, reduction="mean", get_not_nans=False)
+
     loss_function_metric_ignite = IgniteMetricHandler(
         loss_fn=loss_function,
         output_transform=from_engine(["pred", "label"]),
@@ -342,13 +504,6 @@ def get_additional_metrics(labels, include_background=False, loss_kwargs=None, s
     additional_metrics[f"{str_to_prepend}{loss_function.__class__.__name__.lower()}"] = loss_function_metric_ignite
     additional_metrics[f"{str_to_prepend}{mid}surface_dice"] = surface_dice_metric_ignite
 
-    # Disabled since it led to weird artefacts in the Tensorboard diagram
-    # for key_label in args.labels:
-    #     if key_label != "background":
-    #         all_val_metrics[key_label + "_dice"] = MeanDice(
-    #             output_transform=from_engine(["pred_" + key_label, "label_" + key_label]), include_background=False
-    #         )
-
     return additional_metrics
 
 
@@ -361,6 +516,24 @@ def get_test_evaluator(
     post_transform,
     resume_from="None",
 ) -> SupervisedEvaluator:
+    """
+    Retrieves a supervised evaluator for testing in a MONAI training workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        network: The model to be evaluated.
+        inferer: The inference strategy or inferer.
+        device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
+        val_loader: The data loader for the validation/testing dataset.
+        post_transform: Post-processing transformation for the output predictions.
+        resume_from (str, optional): Path to a checkpoint file to resume training from (default is "None").
+
+    Returns:
+        SupervisedEvaluator: An instance of the supervised evaluator for testing.
+
+    TODO Franzi:
+        # SupervisedEvaluator and Trainer originate from PyTorch Ignite
+    """
     init(args)
 
     evaluator = SupervisedEvaluator(
@@ -396,95 +569,6 @@ def get_test_evaluator(
     return evaluator
 
 
-
-def create_supervised_evaluator(args, resume_from="None") -> SupervisedEvaluator:
-    init(args)
-
-    device = torch.device(f"cuda:{args.gpu}")
-
-    pre_transforms_val = Compose(get_pre_transforms_val_as_list(args.labels, device, args))
-    if args.use_test_data_for_validation:
-        val_loader = get_test_loader(args, pre_transforms_val)
-    else:
-        val_loader = get_val_loader(args, pre_transforms_val)
-
-
-    click_transforms = get_click_transforms(device, args)
-    post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir, pretransform=pre_transforms_val)
-
-    network = get_network(args.network, args.labels, args.non_interactive).to(device)
-    _, eval_inferer = get_inferers(
-        args.inferer,
-        sw_roi_size=args.sw_roi_size,
-        train_crop_size=args.train_crop_size,
-        val_crop_size=args.val_crop_size,
-        train_sw_batch_size=args.train_sw_batch_size,
-        val_sw_batch_size=args.val_sw_batch_size,
-        val_sw_overlap=args.val_sw_overlap,
-        cache_roi_weight_map=True,
-    )
-
-    loss_kwargs = {
-        "squared_pred": (not args.loss_no_squared_pred),
-        "include_background": (not args.loss_dont_include_background),
-    }
-    loss_function = get_loss_function(loss_args=args.loss, loss_kwargs=loss_kwargs)
-    val_key_metric = get_key_metric(str_to_prepend="val_")
-    val_additional_metrics = {}
-
-    if args.additional_metrics:
-        val_additional_metrics = get_additional_metrics(
-            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="val_"
-        )  # (not args.loss_dont_include_background)
-
-    evaluator = SupervisedEvaluator(
-        device=device,
-        val_data_loader=val_loader,
-        network=network,
-        iteration_update=Interaction(
-            deepgrow_probability=args.deepgrow_probability_val,
-            transforms=click_transforms,
-            train=False,
-            label_names=args.labels,
-            max_interactions=args.max_val_interactions,
-            save_nifti=args.save_nifti,
-            nifti_dir=args.data_dir,
-            loss_function=loss_function,
-            nifti_post_transform=post_transform,
-            click_generation_strategy=args.val_click_generation,
-            stopping_criterion=args.val_click_generation_stopping_criterion,
-            non_interactive=args.non_interactive,
-        ),
-        inferer=eval_inferer,
-        postprocessing=post_transform,
-        amp=args.amp,
-        key_val_metric=val_key_metric,
-        additional_metrics=val_additional_metrics,
-        val_handlers=get_val_handlers(sw_roi_size=args.sw_roi_size, inferer=args.inferer, gpu_size=args.gpu_size),
-    )
-
-    save_dict = {
-            "net": network,
-    }
-
-    if resume_from != "None":
-        logger.info(f"{args.gpu}:: Loading Network...")
-        logger.info(f"{save_dict.keys()=}")
-        map_location = device  # {f"cuda:{args.gpu}": f"cuda:{args.gpu}"}
-        checkpoint = torch.load(resume_from)
-
-        for key in save_dict:
-            # If it fails: the file may be broken or incompatible (e.g. evaluator has not been run)
-            assert (
-                key in checkpoint
-            ), f"key {key} has not been found in the save_dict! \n file keys: {checkpoint.keys()}"
-
-        logger.critical("!!!!!!!!!!!!!!!!!!!! RESUMING !!!!!!!!!!!!!!!!!!!!!!!!!")
-        handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
-        handler(evaluator)
-
-    return evaluator, val_key_metric, val_additional_metrics
-
 def get_supervised_evaluator(
     args,
     network,
@@ -497,6 +581,28 @@ def get_supervised_evaluator(
     key_val_metric,
     additional_metrics,
 ) -> SupervisedEvaluator:
+    """
+    Retrieves a supervised evaluator for validation in a MONAI training workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        network: The model to be evaluated.
+        inferer: The inference strategy or inferer.
+        device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
+        val_loader: The data loader for the validation dataset.
+        loss_function: The loss function for evaluation.
+        click_transforms: Data transforms for interactions (e.g., clicks).
+        post_transform: Post-processing transformation for the output predictions.
+        key_val_metric: The key validation metric.
+        additional_metrics: Additional metrics for evaluation.
+
+    Returns:
+        SupervisedEvaluator: An instance of the supervised evaluator for validation.
+
+    TODO Franzi:
+        # max_interactions = 1 (all extreme points)
+    """
+
     init(args)
 
     evaluator = SupervisedEvaluator(
@@ -516,6 +622,7 @@ def get_supervised_evaluator(
             click_generation_strategy=args.val_click_generation,
             stopping_criterion=args.val_click_generation_stopping_criterion,
             non_interactive=args.non_interactive,
+            # add extreme points argument TODO Franzi
         )
         if not args.non_interactive
         else None,
@@ -534,38 +641,27 @@ def get_supervised_evaluator(
     return evaluator
 
 
-# def get_cross_validation_trainers_generator(args, nfolds=5):
-#     device = torch.device(f"cuda:{args.gpu}")
-
-#     pre_transforms_train, pre_transforms_val = get_pre_transforms(args.labels, device, args)
-
-#     train_loaders, val_loaders = get_cross_validation(args, nfolds, pre_transforms_train, pre_transforms_val)
-
-#     # Parse args.resume_from and split it into the different parts, assert len is nfolds
-#     if args.resume_from != "None":
-#         assert os.path.isdir(
-#             args.resume_from
-#         ), "For the ensemble resume_from has to be a dictionary containing the weights starting with 0_, 1_, ..."
-#         filenames = []
-#         for i in range(nfolds):
-#             try:
-#                 file = glob.glob(os.path.join(args.resume, f"{i}_checkpoint_key_metric*"))[0]
-#             except IndexError:
-#                 logger.error("File for the resuming the ensemble has not been found!")
-#                 raise
-#             filenames.append(file)
-#             print(f"{file=}")
-#             exit(0)
-
-#     for i in range(nfolds):
-#         yield get_trainer_with_loaders(
-#             args, train_loaders[i], val_loaders[i], file_prefix=f"{i}_", resume_from=filenames[i]
-#         )
-
 
 def get_ensemble_evaluator(
     args, networks, inferer, device, val_loader, post_transform, resume_from="None", nfolds=5
 ) -> EnsembleEvaluator:
+    """
+    Retrieves an ensemble evaluator for validation in a MONAI training workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        networks: List of neural network models to be evaluated in the ensemble.
+        inferer: The inference strategy or inferer for the ensemble.
+        device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
+        val_loader: The data loader for the validation dataset.
+        post_transform: Post-processing transformation for the ensemble predictions.
+        resume_from (str, optional): Path to a directory containing individual checkpoint files for each network (default is "None").
+        nfolds (int, optional): Number of folds or networks in the ensemble (default is 5).
+
+    Returns:
+        EnsembleEvaluator: An instance of the ensemble evaluator for validation.
+    """
+
     init(args)
 
     device = torch.device(f"cuda:{args.gpu}")
@@ -598,19 +694,32 @@ def get_ensemble_evaluator(
 def get_trainer(
     args, file_prefix="", ensemble_mode: bool = False, resume_from="None"
 ) -> List[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
+    """
+    Retrieves a supervised trainer, evaluator, and related metrics for training in a MONAI deep learning workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        file_prefix (str, optional): Prefix to use for saving ensemble checkpoints (default is "").
+        ensemble_mode (bool, optional): Flag indicating whether to run in ensemble mode (default is False).
+        resume_from (str, optional): Path to a checkpoint file for resuming training (default is "None").
+
+    Returns:
+        Tuple[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
+        - SupervisedTrainer: The trainer instance for training the neural network.
+        - SupervisedEvaluator: The evaluator instance for validation during training.
+        - List: List containing training key metric, additional metrics, validation key metric, and additional metrics.
+    """
     init(args)
     device = torch.device(f"cuda:{args.gpu}") if not args.sw_cpu_output else "cpu"
     sw_device = torch.device(f"cuda:{args.gpu}")
 
     pre_transforms_val = Compose(get_pre_transforms_val_as_list(args.labels, device, args))
-    # val_loader = get_val_loader(args, pre_transforms_val)
     if args.use_test_data_for_validation:
         val_loader = get_test_loader(args, pre_transforms_val)
     else:
         val_loader = get_val_loader(args, pre_transforms_val)
 
-
-    click_transforms = get_click_transforms(sw_device, args)
+    click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
     post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
 
     network = get_network(args.network, args.labels, args.non_interactive).to(sw_device)
@@ -632,7 +741,7 @@ def get_trainer(
     loss_function = get_loss_function(loss_args=args.loss, loss_kwargs=loss_kwargs)
     optimizer = get_optimizer(args.optimizer, args.learning_rate, network)
     lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
-    
+
     val_key_metric = get_key_metric(str_to_prepend="val_")
     val_additional_metrics = {}
     if args.additional_metrics:
@@ -661,7 +770,6 @@ def get_trainer(
         train_additional_metrics = get_additional_metrics(
             args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="train_"
         )
-
 
     train_handlers = get_train_handlers(
         lr_scheduler,
@@ -723,7 +831,6 @@ def get_trainer(
             "net": network,
         }
 
-
     if not ensemble_mode:
         CheckpointSaver(
             save_dir=args.output_dir,
@@ -737,7 +844,7 @@ def get_trainer(
         ).attach(trainer)
         CheckpointSaver(
             save_dir=args.output_dir,
-        save_dict=save_dict,
+            save_dict=save_dict,
             save_key_metric=True,
             save_final=True,
             save_interval=args.save_interval,
@@ -787,18 +894,22 @@ def get_trainer(
     return trainer, evaluator, train_key_metric, train_additional_metrics, val_key_metric, val_additional_metrics
 
 
-# def get_save_dict(trainer, network, optimizer, lr_scheduler):
-#     save_dict = {
-#         "trainer": trainer,
-#         "net": network,
-#         "opt": optimizer,
-#         "lr": lr_scheduler,
-#     }
-#     return save_dict
-
-
 @run_once
 def init(args):
+    """
+    Initializes the environment with configuration settings and global variables.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+
+    Returns:
+        None
+
+    Notes:
+        - This function is intended to be executed only once during the program's lifetime.
+
+    """
+
     global output_dir
     # for OOM debugging
     output_dir = args.output_dir
@@ -806,22 +917,10 @@ def init(args):
 
     if not is_docker():
         torch.set_num_threads(int(os.cpu_count() / 3))  # Limit number of threads to 1/3 of resources
-
-        # # needed for the interaction training for some reason
-        # rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-        # resource.setrlimit(resource.RLIMIT_NOFILE, (8 * 8192, rlimit[1]))
-
     if args.limit_gpu_memory_to != -1:
         limit = args.limit_gpu_memory_to
         assert limit > 0 and limit < 1, f"Percentage GPU memory limit is invalid! {limit} > 0 or < 1"
         torch.cuda.set_per_process_memory_fraction(limit, args.gpu)
-
-        #    # Slurm only: Speed up the creation of temporary files
-        #    if os.environ.get("SLURM_JOB_ID") is not None:
-        #        tmpdir = "/local/work/mhadlich/tmp"
-        #        os.environ["TMPDIR"] = tmpdir
-        #        if not os.path.exists(tmpdir):
-        #            pathlib.Path(tmpdir).mkdir(parents=True)
 
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
@@ -846,6 +945,21 @@ def init(args):
 
 
 def oom_observer(device, alloc, device_alloc, device_free):
+    """
+    Observes and handles out-of-memory (OOM) events on a specified CUDA device.
+
+    Args:
+        device (torch.device): The CUDA device where the OOM event occurred.
+        alloc (int): Allocated memory in bytes.
+        device_alloc (int): Device-allocated memory in bytes.
+        device_free (int): Device-free memory in bytes.
+
+    Returns:
+        None
+
+    Notes:
+        - It logs a memory summary, saves an allocated state snapshot, and visualizes memory usage.
+    """
     if device is not None and logger is not None:
         logger.critical(torch.cuda.memory_summary(device))
     # snapshot right after an OOM happened
@@ -853,6 +967,5 @@ def oom_observer(device, alloc, device_alloc, device_free):
     print("Tips: \nReduce sw_batch_size if there is an OOM (maybe even roi_size)")
     snapshot = torch.cuda.memory._snapshot()
     dump(snapshot, open(f"{output_dir}/oom_snapshot.pickle", "wb"))
-    # logger.critical(snapshot)
     torch.cuda.memory._save_memory_usage(filename=f"{output_dir}/memory.svg", snapshot=snapshot)
     torch.cuda.memory._save_segment_usage(filename=f"{output_dir}/segments.svg", snapshot=snapshot)

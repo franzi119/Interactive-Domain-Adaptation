@@ -31,14 +31,24 @@ from sw_fastedit.data import get_metrics_loader, get_metrics_transforms
 
 logger = logging.getLogger(__name__)
 
-"""
-compute_metrics.py
-
-Computes the metrics of a labels against a prediction dir. Currently the file type is defined as "*.nii.gz" in get_metrics_loader.
-"""
-
-
 def run(args):
+
+    """
+    compute_metrics.py
+
+    Computes the metrics of labels against a prediction directory. Currently, the file type is defined as "*.nii.gz" in get_metrics_loader.
+
+    Args:
+        args (argparse.Namespace): Command-line arguments and configuration settings.
+
+    Returns:
+        None
+
+    Notes:
+        - This function computes metrics for each item in the data loader and generates metrics reports.
+        - The metrics include Dice and Surface Dice metrics, and the results are printed to the console.
+    """
+
     device = torch.device(f"cuda:{args.gpu}")
     args.device = device
     args.debug = False

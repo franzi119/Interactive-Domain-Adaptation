@@ -16,14 +16,13 @@ from monai.data import DataLoader, Dataset, ThreadDataLoader, partition_dataset
 
 from monai.data.dataset import PersistentDataset
 from monai.data.folder_layout import FolderLayout
-from monai.transforms import (  # RandShiftIntensityd,; Resized,; ScaleIntensityRanged,; SignalFillEmpty
+from monai.transforms import (
     Activationsd,
     AsDiscreted,
     CenterSpatialCropd,
     Compose,
     CopyItemsd,
     CropForegroundd,
-    # DataStatsd,
     DivisiblePadd,
     EnsureChannelFirstd,
     EnsureTyped,
@@ -42,17 +41,14 @@ from monai.transforms import (  # RandShiftIntensityd,; Resized,; ScaleIntensity
     SignalFillEmptyd,
     Spacingd,
     ToDeviced,
-    # ToNumpyd,
     ToTensord,
     VoteEnsembled,
 )
 from monai.utils.enums import CommonKeys
 
-from sw_fastedit.helper_transforms import (  # SignalFillEmptyd,
-    # AbortifNaNd,
+from sw_fastedit.helper_transforms import (
     CheckTheAmountOfInformationLossByCropd,
     InitLoggerd,
-    PrintDatad,
     TrackTimed,
     threshold_foreground,
     cast_labels_to_zero_and_one,
@@ -74,19 +70,44 @@ PET_dataset_names = ["AutoPET", "AutoPET2", "AutoPET_merged", "HECKTOR", "AutoPE
 
 
 def get_pre_transforms(labels: Dict, device, args, input_keys=("image", "label")):
+    """
+    Get pre-transforms for both the training and validation dataset.
+
+    Args:
+        labels (Dict): Dictionary containing label-related information.
+        device: Device to be used for computation.
+        args: Additional arguments.
+        input_keys (Tuple): Tuple containing input keys, default is ("image", "label").
+
+    Returns:
+        Tuple[Compose, Compose]: A tuple containing Compose instances for training and validation pre-transforms.
+    """
     return Compose(get_pre_transforms_train_as_list(labels, device, args, input_keys)), Compose(
         get_pre_transforms_val_as_list(labels, device, args, input_keys)
     )
 
 
 def get_spacing(args):
+    """
+    Get the voxel spacing for the specified dataset.
+
+    Args:
+        args: Additional arguments containing the dataset information.
+
+    Returns:
+        Tuple: A tuple representing the voxel spacing in (x, y, z) dimensions.
+
+    Raises:
+        UserWarning: If the specified dataset is not recognized.
+
+    Note:
+        This function returns the voxel spacing based on the dataset specified in the arguments.
+        Currently supported datasets are "AutoPET," "AutoPET2," "AutoPET2_Challenge," "HECKTOR," and "MSD_Spleen."
+    """
     AUTOPET_SPACING = (2.03642011, 2.03642011, 3.0)
     MSD_SPLEEN_SPACING = (2 * 0.79296899, 2 * 0.79296899, 5.0)
-    # Apply this only to the label!
-    #HECKTOR_SPACING = (4, 4, 4)
     HECKTOR_SPACING = (2.03642011, 2.03642011, 3.0)
-    #HECKTOR_SPACING = (2,2,2)
-    #HECKTOR_SPACING = (4 * 0.98, 4 * 0.98, 1 * 3.27)
+    # TODO Franzi Define Prostate Spacings
 
     if args.dataset == "AutoPET" or args.dataset == "AutoPET2" or args.dataset == "AutoPET2_Challenge":
         return AUTOPET_SPACING
@@ -94,10 +115,27 @@ def get_spacing(args):
         return HECKTOR_SPACING
     elif args.dataset == "MSD_Spleen":
         return MSD_SPLEEN_SPACING
-    # return spacing
+    else:
+        raise UserWarning(f"No valid dataset found: {args.dataset}")
 
 
 def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("image", "label")):
+    """
+    Get a list of pre-transforms for training data.
+
+    Args:
+        labels (Dict): Dictionary of labels.
+        device: The device on which to perform the transformations.
+        args: Additional arguments containing information for preprocessing.
+        input_keys (tuple): Tuple of input keys, default is ("image", "label").
+
+    Returns:
+        List: A list of pre-transforms for training data.
+
+    Note:
+        This function returns a list of MONAI transforms to be applied to training data.
+        It includes operations such as loading images, normalization, cropping, flipping, and more.
+    """
     cpu_device = torch.device("cpu")
     spacing = get_spacing(args)
     if args.debug:
@@ -105,7 +143,7 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
     else:
         loglevel = logging.INFO
 
-    # data Input keys have to be ["image", "label"] for train, and least ["image"] for val
+    # data Input keys have to be ["image", "label"] for train, and at least ["image"] for val
     if args.dataset in PET_dataset_names:
         t = [
             # Initial transforms on the CPU which does not hurt since they are executed asynchronously and only once
@@ -122,10 +160,8 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             EnsureChannelFirstd(keys=input_keys),
             NormalizeLabelsInDatasetd(keys="label", labels=labels, device=cpu_device, allow_missing_keys=True),
             Orientationd(keys=input_keys, axcodes="RAS"),
-            # Spacingd(keys=input_keys, pixdim=spacing),
-            Spacingd(keys='image', pixdim=spacing) if True else Identityd(keys=input_keys, allow_missing_keys=True),
+            Spacingd(keys='image', pixdim=spacing),
             Spacingd(keys='label', pixdim=spacing, mode="nearest") if ('label' in input_keys) else Identityd(keys=input_keys, allow_missing_keys=True),
-            # PrintDatad(),
             CropForegroundd(
                 keys=input_keys,
                 source_key="image",
@@ -148,7 +184,7 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
                 pos=args.positive_crop_rate,
                 neg=1 - args.positive_crop_rate,
                 allow_smaller=True,
-            )
+            ) # TODO Franzi - this is only for the sliding window
             if args.train_crop_size is not None
             else Identityd(keys=input_keys, allow_missing_keys=True),
             DivisiblePadd(keys=input_keys, k=32, value=0)
@@ -158,12 +194,10 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             RandFlipd(keys=input_keys, spatial_axis=[1], prob=0.10),
             RandFlipd(keys=input_keys, spatial_axis=[2], prob=0.10),
             RandRotate90d(keys=input_keys, prob=0.10, max_k=3),
-            # AbortifNaNd(input_keys),
             SignalFillEmptyd(input_keys),
             AddEmptySignalChannels(keys=input_keys, device=cpu_device)
             if not args.non_interactive
             else Identityd(keys=input_keys, allow_missing_keys=True),
-            # PrintDatad(),
             # Move to GPU
             # WARNING: Activating the line below leads to minimal gains in performance
             # However you are buying these gains with a lot of weird errors and problems
@@ -181,6 +215,22 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
 
 
 def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("image", "label")):
+    """
+    Get a list of pre-transforms for validation data.
+
+    Args:
+        labels (Dict): Dictionary of labels.
+        device: The device on which to perform the transformations.
+        args: Additional arguments containing information for preprocessing.
+        input_keys (tuple): Tuple of input keys, default is ("image", "label").
+
+    Returns:
+        List: A list of pre-transforms for validation data.
+
+    Note:
+        This function returns a list of MONAI transforms to be applied to validation data.
+        It includes operations such as loading images, normalization, cropping, and more.
+    """
     cpu_device = torch.device("cpu")
     spacing = get_spacing(args)
 
@@ -202,9 +252,8 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             # Only for HECKTOR, filter out the values > 1
             Lambdad(keys="label", func=cast_labels_to_zero_and_one) if (args.dataset == "HECKTOR") else Identityd(keys=input_keys, allow_missing_keys=True),
             Orientationd(keys=input_keys, axcodes="RAS"),
-            Spacingd(keys='image', pixdim=spacing) if True else Identityd(keys=input_keys, allow_missing_keys=True),
+            Spacingd(keys='image', pixdim=spacing),
             Spacingd(keys='label', pixdim=spacing, mode="nearest") if ('label' in input_keys) else Identityd(keys=input_keys, allow_missing_keys=True),
-            #PrintDatad(),
             CheckTheAmountOfInformationLossByCropd(
                 keys="label", roi_size=args.val_crop_size, crop_foreground=args.crop_foreground
             )
@@ -217,7 +266,6 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             )
             if args.crop_foreground
             else Identityd(keys=input_keys, allow_missing_keys=True),
-            #PrintDatad(),
             CenterSpatialCropd(keys=input_keys, roi_size=args.val_crop_size)
             if args.val_crop_size is not None
             else Identityd(keys=input_keys, allow_missing_keys=True),
@@ -243,10 +291,29 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
 
 
 def get_device(data):
+    """
+    Get the device information for the input data.
+
+    Args:
+        data: Input data for which the device information is retrieved.
+
+    Returns:
+        str: A string containing the device information.
+    """
     return f"device - {data.device}"
 
 
 def get_click_transforms(device, args):
+    """
+    Get the transforms used for generating clicks during the interaction process.
+
+    Args:
+        device: Device information.
+        args: Command-line arguments.
+
+    Returns:
+        Compose: A composition of transforms to be applied during the interaction process.
+    """
     spacing = get_spacing(args)
     cpu_device = torch.device("cpu")
 
@@ -268,21 +335,28 @@ def get_click_transforms(device, args):
             sigma=args.sigma,
             disks=(not args.no_disks),
             device=device,
-            # spacing=spacing,
         ),
         ToTensord(keys=("image", "label", "pred"), device=cpu_device)
         if args.sw_cpu_output
         else Identityd(keys=("pred",), allow_missing_keys=True),
     ]
-
-    # if args.debug:
-    #     for i in range(len(t)):
-    #         t[i] = TrackTimed(t[i])
-
+    # TODO Franzi: maybe only AddGuidance and AddGuidanceSignal for the extreme points
     return Compose(t)
 
 
 def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransform=None):
+    """
+    Get the post transforms used for processing and saving predictions.
+
+    Args:
+        labels (list): List of label names.
+        save_pred (bool): Flag to indicate whether to save predictions.
+        output_dir (str): Output directory for saving predictions.
+        pretransform (Compose): Pre-transform to be applied before inverting the prediction.
+
+    Returns:
+        Compose: A composition of transforms for post-processing and saving predictions.
+    """
     cpu_device = torch.device("cpu")
     if save_pred:
         if output_dir is None:
@@ -320,7 +394,6 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
             writer="ITKWriter",
             output_dir=os.path.join(output_dir, "predictions"),
             output_postfix="",
-            #    output_ext=".nii.gz",
             output_dtype=np.uint8,
             separate_folder=False,
             resample=False,
@@ -328,13 +401,23 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
         ToTensord(keys=("image", "label", "pred"), device=cpu_device),
-        # This transform is to check dice score per segment/label
-        # SplitPredsLabeld(keys="pred"),
     ]
     return Compose(t)
 
 
 def get_post_transforms_unsupervised(labels, device, pred_dir, pretransform):
+    """
+    Get the post transforms used for processing and saving unsupervised predictions without labels.
+
+    Args:
+        labels (list): List of label names. (not used but kept in function signature)
+        device: Device for computation.
+        pred_dir (str): Directory to save predictions.
+        pretransform (Compose): Pre-transform to be applied before inverting the prediction.
+
+    Returns:
+        Compose: A composition of transforms for processing and saving unsupervised predictions.
+    """
     os.makedirs(pred_dir, exist_ok=True)
     nii_layout = FolderLayout(output_dir=pred_dir, postfix="", extension=".nii.gz", makedirs=False)
 
@@ -348,10 +431,8 @@ def get_post_transforms_unsupervised(labels, device, pred_dir, pretransform):
         Activationsd(keys="pred", softmax=True),
         AsDiscreted(
             keys="pred",
-            argmax=True,  # to_onehot=(len(labels),),
+            argmax=True,
         ),
-        # This transform is to check dice score per segment/label, disabled not needed right now
-        # SplitPredsLabeld(keys="pred"),
         SaveImaged(
             keys="pred",
             writer="ITKWriter",
@@ -367,6 +448,24 @@ def get_post_transforms_unsupervised(labels, device, pred_dir, pretransform):
 
 
 def get_post_ensemble_transforms(labels, device, pred_dir, pretransform, nfolds=5, weights=None):
+    """
+    Get the post transforms used for processing and saving ensemble predictions.
+
+    Args:
+        labels (list): List of label names.
+        device: Device for computation.
+        pred_dir (str): Directory to save ensemble predictions.
+        pretransform (Compose): Pre-transform to be applied before inverting the prediction.
+        nfolds (int, optional): Number of folds in the ensemble. Defaults to 5.
+        weights (list, optional): List of weights for ensemble voting. Defaults to None.
+
+    Returns:
+        Compose: A composition of transforms for processing and saving ensemble predictions.
+
+    Note:
+        This function returns a composition of transforms tailored for post-processing and saving ensemble predictions.
+        The composition includes inversion, ensembling (mean or vote), activation, discretization, and saving.
+    """
     prediction_keys = [f"pred_{i}" for i in range(nfolds)]
 
     os.makedirs(pred_dir, exist_ok=True)
@@ -415,6 +514,19 @@ def get_post_ensemble_transforms(labels, device, pred_dir, pretransform, nfolds=
 
 
 def get_val_post_transforms(labels, device):
+    """
+    Get post transforms for validation predictions.
+
+    Args:
+        labels (list): List of label names.
+        device: Device for computation.
+
+    Returns:
+        Compose: A composition of transforms for processing validation predictions.
+
+    Note:
+        The transforms include activation, discretization, and segmentation for evaluating dice score per segment/label.
+    """
     t = [
         Activationsd(keys="pred", softmax=True),
         AsDiscreted(
@@ -429,6 +541,17 @@ def get_val_post_transforms(labels, device):
 
 
 def get_AutoPET_file_list(args) -> List[List, List, List]:
+    """
+    Get file lists for AutoPET dataset.
+
+    Args:
+        args: Command line arguments.
+
+    Returns:
+        Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
+        A tuple containing lists of training, validation, and test data dictionaries.
+        Each dictionary contains the paths to the image and label files.
+    """
     train_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTr", "*.nii.gz")))
     train_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTr", "*.nii.gz")))
 
@@ -445,11 +568,36 @@ def get_AutoPET_file_list(args) -> List[List, List, List]:
 
 
 def get_filename_without_extensions(nifti_path):
-    # Strips up to two extensions from the filename, e.g. SUV.nii.gz -> SUV
+    """
+    Extracts the filename without extensions from a given NIfTI file path.
+
+    Args:
+        nifti_path (str): The path to the NIfTI file.
+
+    Returns:
+        str: The filename without extensions.
+
+    Example:
+        "SUV.nii.gz" to "SUV". The resulting string represents the filename without extensions.
+    """
     return Path(os.path.basename(nifti_path)).with_suffix("").with_suffix("").name
 
 
 def get_AutoPET2_Challenge_file_list(args) -> List[List, List, List]:
+    """
+    Retrieves file lists for the AutoPET2 Challenge dataset.
+
+    Args:
+        args: Command-line arguments specifying input and cache directories.
+
+    Returns:
+        Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
+        A tuple containing a dictonary for the test data.
+
+    Note:
+        This function processes AutoPET2 Challenge data, converts .mha files to .nii.gz format, and returns
+        test data entries with the corresponding NIfTI file paths.
+    """
     test_images = sorted(glob.glob(os.path.join(args.input_dir, "*.mha")))
 
     logger.info(f"{test_images=}")
@@ -466,6 +614,18 @@ def get_AutoPET2_Challenge_file_list(args) -> List[List, List, List]:
 
 
 def post_process_AutoPET2_Challenge_file_list(args, pred_dir, cache_dir):
+    """
+    Post-processes predictions for the AutoPET2 Challenge dataset.
+
+    Args:
+        args: Command-line arguments specifying output directory.
+        pred_dir: Directory containing predicted NIfTI files.
+        cache_dir: Directory for intermediate file storage.
+
+    Note:
+        This function moves predicted NIfTI files to a subdirectory, retrieves the list of NIfTI files,
+        and creates corresponding .mha files for further processing.
+    """
     logger.info("POSTPROCESSING AutoPET challenge files")
     nii_dir = os.path.join(cache_dir, "prediction")
     shutil.move(pred_dir, nii_dir)
@@ -486,6 +646,15 @@ def post_process_AutoPET2_Challenge_file_list(args, pred_dir, cache_dir):
 
 
 def get_MSD_Spleen_file_list(args) -> List[List, List, List]:
+    """
+    Retrieves file lists for the MSD Spleen dataset.
+
+    Args:
+        args: Command-line arguments specifying input directory, split ratio, and random seed.
+
+    Returns:
+        Tuple containing lists of training and validation data dictionaries, each with "image" and "label" keys.
+    """
     all_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTr", "*.nii.gz")))
     all_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTr", "*.nii.gz")))
 
@@ -501,6 +670,15 @@ def get_MSD_Spleen_file_list(args) -> List[List, List, List]:
 
 
 def get_AutoPET2_file_list(args) -> List[List, List, List]:
+    """
+    Retrieves file lists for the AutoPET2 dataset.
+
+    Args:
+        args: Command-line arguments specifying input directory, split ratio, and random seed.
+
+    Returns:
+        Tuple containing lists of training and validation data dictionaries, each with "image" and "label" keys.
+    """
     all_images = []
     all_labels = []
 
@@ -524,6 +702,15 @@ def get_AutoPET2_file_list(args) -> List[List, List, List]:
 
 
 def get_HECKTOR_file_list(args) -> List[List, List, List]:
+    """
+    Retrieves file lists for the HECKTOR dataset.
+
+    Args:
+        args: Command-line arguments specifying input directory, split ratio, and random seed.
+
+    Returns:
+        Tuple containing lists of training, validation, and test data dictionaries, each with "image" and "label" keys.
+    """
     logger.warning("Run the resample2PET.py script before using HECKTOR. Different files have different spacings and I found no other way to deal with it..")
 
     # Assuming this is the folder /lsdf/data/medical/HECKTOR/hecktor2022_training/
@@ -548,6 +735,15 @@ def get_HECKTOR_file_list(args) -> List[List, List, List]:
 
 
 def get_data(args):
+    """
+    Retrieves data for training, validation, and testing based on the specified dataset in the command-line arguments.
+
+    Args:
+        args: Command-line arguments specifying the dataset, input directory, and other options.
+
+    Returns:
+        Tuple containing lists of training, validation, and test data dictionaries, each with "image" and "label" keys.
+    """
     logger.info(f"{args.dataset=}")
 
     test_data = []
@@ -567,7 +763,7 @@ def get_data(args):
         train_data += val_data
         val_data = train_data
         test_data = train_data
-        logger.warning("All validation data has been added to the training. Validation on them no longer makes sense.")
+        logger.warning("All validation data has been added to the training. Validation and Testing on them no longer makes sense.")
 
     logger.info(f"len(train_data): {len(train_data)}, len(val_data): {len(val_data)}, len(test_data): {len(test_data)}")
 
@@ -580,6 +776,16 @@ def get_data(args):
 
 
 def get_test_loader(args, pre_transforms_test):
+    """
+    Retrieves a DataLoader for testing based on the specified command-line arguments and pre-transforms.
+
+    Args:
+        args: Command-line arguments specifying the dataset, input directory, and other options.
+        pre_transforms_test: Pre-transforms to be applied to the test data.
+
+    Returns:
+        DataLoader for testing with a batch size of 1.
+    """
     train_data, val_data, test_data = get_data(args)
     if not len(test_data):
         if len(val_data) > 0:
@@ -593,12 +799,7 @@ def get_test_loader(args, pre_transforms_test):
     test_ds = Dataset(test_data, pre_transforms_test)
     test_loader = DataLoader(
         test_ds,
-        # shuffle=True,
-        # num_workers=args.num_workers,
         batch_size=1,
-        # The two options below are needed if ToDeviced('cuda' ,..) is activated..
-        # multiprocessing_context="spawn",
-        # persistent_workers=True,
     )
     logger.info("{} :: Total Records used for Testing is: {}".format(args.gpu, total_l))
 
@@ -606,6 +807,16 @@ def get_test_loader(args, pre_transforms_test):
 
 
 def get_train_loader(args, pre_transforms_train):
+    """
+    Retrieves a DataLoader for training based on the specified command-line arguments and pre-transforms.
+
+    Args:
+        args: Command-line arguments specifying the dataset, input directory, and other options.
+        pre_transforms_train: Pre-transforms to be applied to the training data.
+
+    Returns:
+        DataLoader for training with asynchronous data loading using PersistentDataset and ThreadDataLoader.
+    """
     train_data, val_data, test_data = get_data(args)
     total_l = len(train_data) + len(val_data)
 
@@ -615,9 +826,6 @@ def get_train_loader(args, pre_transforms_train):
         shuffle=True,
         num_workers=args.num_workers,
         batch_size=1,
-        # The two options below are needed if ToDeviced('cuda' ,..) is activated..
-        # multiprocessing_context="spawn",
-        # persistent_workers=True,
     )
     logger.info("{} :: Total Records used for Training is: {}/{}".format(args.gpu, len(train_ds), total_l))
 
@@ -625,6 +833,16 @@ def get_train_loader(args, pre_transforms_train):
 
 
 def get_val_loader(args, pre_transforms_val):
+    """
+    Retrieves a DataLoader for validation based on the specified command-line arguments and pre-transforms.
+
+    Args:
+        args: Command-line arguments specifying the dataset, input directory, and other options.
+        pre_transforms_val: Pre-transforms to be applied to the validation data.
+
+    Returns:
+        DataLoader for validation with asynchronous data loading using PersistentDataset and ThreadDataLoader.
+    """
     train_data, val_data, test_data = get_data(args)
 
     total_l = len(train_data) + len(val_data)
@@ -634,8 +852,6 @@ def get_val_loader(args, pre_transforms_val):
         val_ds,
         num_workers=args.num_workers,
         batch_size=1,
-        # multiprocessing_context="spawn",
-        # persistent_workers=True,
     )
     logger.info("{} :: Total Records used for Validation is: {}/{}".format(args.gpu, len(val_ds), total_l))
 
@@ -643,6 +859,18 @@ def get_val_loader(args, pre_transforms_val):
 
 
 def get_cross_validation(args, nfolds, pre_transforms_train, pre_transforms_val):
+    """
+    Generates cross-validation datasets and corresponding data loaders based on the specified command-line arguments.
+
+    Args:
+        args: Command-line arguments specifying the dataset, input directory, and other options.
+        nfolds: Number of folds for cross-validation.
+        pre_transforms_train: Pre-transforms to be applied to the training data.
+        pre_transforms_val: Pre-transforms to be applied to the validation data.
+
+    Returns:
+        Tuple of lists containing training and validation DataLoader instances for each fold.
+    """
     folds = list(range(nfolds))
 
     train_data, val_data, test_data = get_data(args)
@@ -678,10 +906,20 @@ def get_cross_validation(args, nfolds, pre_transforms_train, pre_transforms_val)
         for i in folds
     ]
 
-    return train_loaders, val_loaders  # , test_loader
+    return train_loaders, val_loaders
 
 
 def get_metrics_loader(args, file_glob="*.nii.gz"):
+    """
+    Generates a metrics loader for evaluating predictions based on specified command-line arguments.
+
+    Args:
+        args: Command-line arguments specifying the labels directory, predictions directory, and other options.
+        file_glob (str): File pattern to match predictions.
+
+    Returns:
+        List of dictionaries containing label and prediction file paths for evaluation.
+    """
     labels_dir = args.labels_dir
     predictions_dir = args.predictions_dir
     predictions_glob = os.path.join(predictions_dir, file_glob)
@@ -707,6 +945,17 @@ def get_metrics_loader(args, file_glob="*.nii.gz"):
 
 
 def get_metrics_transforms(device, labels, args):
+    """
+    Generates a set of transforms for processing predictions during metrics calculation.
+
+    Args:
+        device: Device to which tensors are moved.
+        labels: Dictionary containing labels information.
+        args: Command-line arguments specifying debugging options, logging, and output directory.
+
+    Returns:
+        Composed set of transforms for metrics calculation.
+    """
     if args.debug:
         loglevel = logging.DEBUG
     else:

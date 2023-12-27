@@ -1,0 +1,288 @@
+[2023-12-13 10:51:58.843][INFO] setup_loggers - Logging all the data to './test_output//log.txt'
+[2023-12-13 10:51:58.845][INFO] setup_environment_and_adapt_args - --data was None, so that ./test_output//data/data was selected instead
+[2023-12-13 10:51:58.845][INFO] setup_environment_and_adapt_args - CPU Count: 32
+[2023-12-13 10:51:58.845][INFO] setup_environment_and_adapt_args - Num threads: 16
+[2023-12-13 10:51:59.834][INFO] setup_environment_and_adapt_args - Selected GPU size: small, since GPU Memory: 11.0 GB
+[2023-12-13 10:51:59.834][INFO] run - USING:: input_dir = /cvhci/data/AutoPET/AutoPET/
+[2023-12-13 10:51:59.834][INFO] run - USING:: output_dir = ./test_output/
+[2023-12-13 10:51:59.834][INFO] run - USING:: data_dir = ./test_output//data
+[2023-12-13 10:51:59.834][INFO] run - USING:: cache_dir = ./cache/0651da5a-36f0-4135-9b08-4127ecec2afc
+[2023-12-13 10:51:59.834][INFO] run - USING:: throw_away_cache = True
+[2023-12-13 10:51:59.834][INFO] run - USING:: save_pred = False
+[2023-12-13 10:51:59.834][INFO] run - USING:: split = 0.8
+[2023-12-13 10:51:59.834][INFO] run - USING:: gpu_size = small
+[2023-12-13 10:51:59.834][INFO] run - USING:: limit_gpu_memory_to = -1
+[2023-12-13 10:51:59.835][INFO] run - USING:: limit = 0
+[2023-12-13 10:51:59.835][INFO] run - USING:: dataset = AutoPET
+[2023-12-13 10:51:59.835][INFO] run - USING:: use_test_data_for_validation = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: train_on_all_samples = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: positive_crop_rate = 0.6
+[2023-12-13 10:51:59.835][INFO] run - USING:: seed = 36
+[2023-12-13 10:51:59.835][INFO] run - USING:: gpu = 0
+[2023-12-13 10:51:59.835][INFO] run - USING:: no_log = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: no_data = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: dont_check_output_dir = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: debug = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: network = dynunet
+[2023-12-13 10:51:59.835][INFO] run - USING:: inferer = SlidingWindowInferer
+[2023-12-13 10:51:59.835][INFO] run - USING:: sw_roi_size = (128, 128, 128)
+[2023-12-13 10:51:59.835][INFO] run - USING:: train_crop_size = (224, 224, 224)
+[2023-12-13 10:51:59.835][INFO] run - USING:: val_crop_size = None
+[2023-12-13 10:51:59.835][INFO] run - USING:: train_sw_batch_size = 8
+[2023-12-13 10:51:59.835][INFO] run - USING:: val_sw_batch_size = 1
+[2023-12-13 10:51:59.835][INFO] run - USING:: train_sw_overlap = 0.25
+[2023-12-13 10:51:59.835][INFO] run - USING:: val_sw_overlap = 0.25
+[2023-12-13 10:51:59.835][INFO] run - USING:: sw_cpu_output = False
+[2023-12-13 10:51:59.835][INFO] run - USING:: amp = True
+[2023-12-13 10:51:59.835][INFO] run - USING:: num_workers = 1
+[2023-12-13 10:51:59.835][INFO] run - USING:: epochs = 400
+[2023-12-13 10:51:59.835][INFO] run - USING:: learning_rate = 0.0001
+[2023-12-13 10:51:59.836][INFO] run - USING:: optimizer = Adam
+[2023-12-13 10:51:59.836][INFO] run - USING:: loss = DiceCELoss
+[2023-12-13 10:51:59.836][INFO] run - USING:: scheduler = CosineAnnealingLR
+[2023-12-13 10:51:59.836][INFO] run - USING:: loss_dont_include_background = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: loss_no_squared_pred = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: resume_from = None
+[2023-12-13 10:51:59.836][INFO] run - USING:: resume_override_scheduler = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: use_scale_intensity_ranged = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: additional_metrics = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: crop_foreground = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: val_freq = 1
+[2023-12-13 10:51:59.836][INFO] run - USING:: save_interval = 3
+[2023-12-13 10:51:59.836][INFO] run - USING:: eval_only = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: save_nifti = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: non_interactive = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: max_train_interactions = 10
+[2023-12-13 10:51:59.836][INFO] run - USING:: max_val_interactions = 10
+[2023-12-13 10:51:59.836][INFO] run - USING:: deepgrow_probability_train = 1.0
+[2023-12-13 10:51:59.836][INFO] run - USING:: deepgrow_probability_val = 1.0
+[2023-12-13 10:51:59.836][INFO] run - USING:: sigma = 1
+[2023-12-13 10:51:59.836][INFO] run - USING:: no_disks = False
+[2023-12-13 10:51:59.836][INFO] run - USING:: train_click_generation = 2
+[2023-12-13 10:51:59.836][INFO] run - USING:: val_click_generation = 2
+[2023-12-13 10:51:59.836][INFO] run - USING:: train_click_generation_stopping_criterion = 1
+[2023-12-13 10:51:59.836][INFO] run - USING:: val_click_generation_stopping_criterion = 1
+[2023-12-13 10:51:59.837][INFO] run - USING:: train_loss_stopping_threshold = 0.1
+[2023-12-13 10:51:59.837][INFO] run - USING:: train_iteration_probability = 0.5
+[2023-12-13 10:51:59.837][INFO] run - USING:: caller_args = ['train.py', '-a', '-i', '/cvhci/data/AutoPET/AutoPET/', '--dataset', 'AutoPET', '-o', './test_output/', '-c', './cache', '-ta', '-e', '400']
+[2023-12-13 10:51:59.837][INFO] run - USING:: env = environ({'CONDA_SHLVL': '2', 'LD_LIBRARY_PATH': '/home/zmarinov/temp_anaconda3/envs/int_sliding/lib/python3.9/site-packages/cv2/../../lib64:/home/zmarinov/.local/cuda-11.3/lib64:/cvhci/software/deeplearn/torch/install/lib:/cvhci/software/deeplearn/torch/install/lib::/cvhci/software/deeplearn/caffe/build_gpu/install/lib:/usr/local/cuda-7.5/targets/x86_64-linux/lib:/cvhci/software/deeplearn/cuDNN/current/cuda/lib64:/cvhci/software/deeplearn/caffe/build_gpu/install/lib:/usr/local/cuda-7.5/targets/x86_64-linux/lib:/cvhci/software/deeplearn/cuDNN/current/cuda/lib64', 'CONDA_EXE': '/home/zmarinov/temp_anaconda3/bin/conda', 'SSH_CONNECTION': '141.3.14.40 53490 141.3.14.43 22', 'LANG': 'C.UTF-8', 'C_INCLUDE_PATH': ':/cvhci/software/deeplearn/cuDNN/current/cuda/include:/cvhci/software/deeplearn/cuDNN/current/cuda/include', 'CONDA_PREFIX': '/home/zmarinov/temp_anaconda3/envs/int_sliding', 'LUA_PATH': '/home/mtapaswi/.luarocks/share/lua/5.1/?.lua;/home/mtapaswi/.luarocks/share/lua/5.1/?/init.lua;/cvhci/software/deeplearn/torch/install/share/lua/5.1/?.lua;/cvhci/software/deeplearn/torch/install/share/lua/5.1/?/init.lua;./?.lua;/cvhci/software/deeplearn/torch/install/share/luajit-2.1.0-alpha/?.lua;/usr/local/share/lua/5.1/?.lua;/usr/local/share/lua/5.1/?/init.lua', 'DYLD_LIBRARY_PATH': '/cvhci/software/deeplearn/torch/install/lib:/cvhci/software/deeplearn/torch/install/lib:', 'S_COLORS': 'auto', '_CE_M': '', 'XDG_SESSION_ID': '25178', 'USER': 'zmarinov', 'CONDA_PREFIX_1': '/home/zmarinov/temp_anaconda3', 'LUA_CPATH': '/home/mtapaswi/.luarocks/lib/lua/5.1/?.so;/cvhci/software/deeplearn/torch/install/lib/lua/5.1/?.so;./?.so;/usr/local/lib/lua/5.1/?.so;/usr/local/lib/lua/5.1/loadall.so', 'PWD': '/home/zmarinov/repos/AutoPET2-Submission/src', 'HOME': '/home/zmarinov', 'CONDA_PYTHON_EXE': '/home/zmarinov/temp_anaconda3/bin/python', 'SSH_CLIENT': '141.3.14.40 53490 22', 'CUDA_HOME': '/home/zmarinov/.local/cuda-11.3', 'KRB5CCNAME': 'FILE:/tmp/krb5cc_12258_GLgjpK', '_CE_CONDA': '', 'CONDA_PROMPT_MODIFIER': '(int_sliding) ', 'CVHCI': '/cvhci', 'SSH_TTY': '/dev/pts/0', 'MAIL': '/var/mail/zmarinov', 'CVHCI_DISTLIBS': '/cvhci/distlibs', 'TERM': 'xterm-256color', 'SHELL': '/bin/bash', 'LSDF': '/lsdf', 'SHLVL': '1', 'PYTHONPATH': '/cvhci/software/deeplearn/caffe/build_gpu/install/python:/cvhci/software/deeplearn/caffe/build_gpu/install/python:', 'DISTRIBUTION': 'ubuntu-18.04-amd64', 'LOGNAME': 'zmarinov', 'DBUS_SESSION_BUS_ADDRESS': 'unix:path=/run/user/12258/bus', 'XDG_RUNTIME_DIR': '/run/user/12258', 'CPLUS_INCLUDE_PATH': ':/cvhci/software/deeplearn/cuDNN/current/cuda/include:/cvhci/software/deeplearn/cuDNN/current/cuda/include', 'PATH': '/home/zmarinov/temp_anaconda3/envs/int_sliding/bin:/home/zmarinov/temp_anaconda3/condabin:/home/zmarinov/.local/cuda-11.3/bin:/home/zmarinov/.local/bin:/cvhci/software/deeplearn/torch/install/bin:/cvhci/software/deeplearn/torch/install/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin:/cvhci/software/matlab/bin:/usr/local/cuda/bin:/usr/local/cuda/bin', 'CONDA_DEFAULT_ENV': 'int_sliding', 'OLDPWD': '/home/zmarinov', '_': '/home/zmarinov/temp_anaconda3/envs/int_sliding/bin/python3', 'CRC32C_SW_MODE': 'auto'})
+[2023-12-13 10:51:59.837][INFO] run - USING:: git = * main
+bbbf61f29f39d37a8d992ee8076e983f07c06d00
+
+[2023-12-13 10:51:59.837][INFO] run - USING:: labels = {'tumor': 1, 'background': 0}
+[2023-12-13 10:51:59.837][INFO] run - USING:: real_cuda_device = 0
+[2023-12-13 10:51:59.837][INFO] run - USING:: cwd = /home/zmarinov/repos/AutoPET2-Submission/src
+[2023-12-13 10:51:59.875][INFO] run - Logging GPU usage to ./test_output//usage.csv
+[2023-12-13 10:52:00.021][INFO] setup_loggers - Logging all the data to './test_output//log.txt'
+[2023-12-13 10:52:00.024][INFO] get_data - args.dataset='AutoPET'
+[2023-12-13 10:52:00.417][INFO] get_data - len(train_data): 396, len(val_data): 105, len(test_data): 105
+[2023-12-13 10:52:00.417][INFO] get_val_loader - 0 :: Total Records used for Validation is: 105/501
+[2023-12-13 10:52:00.417][INFO] get_click_transforms - device=device(type='cuda', index=0)
+[2023-12-13 10:52:00.747][INFO] get_network - Selected network DynUNet
+[2023-12-13 10:52:00.747][INFO] get_network - Number of parameters: 31,001,282
+[2023-12-13 10:52:01.894][INFO] get_inferers - train_batch_size=8
+[2023-12-13 10:52:01.894][INFO] get_inferers - val_batch_size=1
+[2023-12-13 10:52:01.957][INFO] setup_loggers - Logging all the data to './test_output//log.txt'
+[2023-12-13 10:52:01.959][INFO] get_data - args.dataset='AutoPET'
+[2023-12-13 10:52:01.962][INFO] get_data - len(train_data): 396, len(val_data): 105, len(test_data): 105
+[2023-12-13 10:52:01.962][INFO] get_train_loader - 0 :: Total Records used for Training is: 396/501
+[2023-12-13 10:52:01.970][INFO] run - Engine run resuming from iteration 0, epoch 0 until 400 epochs
+[2023-12-13 10:52:14.296][INFO] __call__ - START interaction class Device: 0 --- used:  1 GB
+[2023-12-13 10:52:14.340][INFO] __call__ - inputs.shape is torch.Size([1, 3, 224, 224, 224])
+[2023-12-13 10:52:14.340][INFO] __call__ - labels.shape is torch.Size([1, 1, 224, 224, 224])
+[2023-12-13 10:52:14.341][INFO] __call__ - image file name: ['/cvhci/data/AutoPET/AutoPET/imagesTr/tumor_316.nii.gz']
+[2023-12-13 10:52:14.341][INFO] __call__ - label file name: ['/cvhci/data/AutoPET/AutoPET/labelsTr/tumor_316.nii.gz']
+[2023-12-13 10:52:25.342][CRITICAL] exit_gracefully - #### RECEIVED TERM SIGNAL - ABORTING RUN ############
+[2023-12-13 10:52:27.687][CRITICAL] exit_gracefully - #### RECEIVED TERM SIGNAL - ABORTING RUN ############
+[2023-12-13 10:52:27.712][INFO] exit_gracefully - 
+                                          Count  Total Time (s)        Avg  \
+Compose.__call__                              3       13.872858   4.624286   
+trainer: Batch generation                     1       11.536290  11.536290   
+LoadImage.__call__                            5       10.018255   2.003651   
+LoadImaged.__call__                           2        8.949182   4.474591   
+ScaleIntensityRangePercentilesd.__call__      2        3.737413   1.868706   
+ScaleIntensityRangePercentiles.__call__       2        3.737237   1.868619   
+ScaleIntensityRange.__call__                  2        0.682363   0.341182   
+NormalizeLabelsInDatasetd.__call__            2        0.400339   0.200169   
+RandCropByPosNegLabeld.__call__               1        0.379419   0.379419   
+Orientationd.__call__                         2        0.254335   0.127167   
+Orientation.__call__                          4        0.253707   0.063427   
+AddEmptySignalChannels.__call__               1        0.046180   0.046180   
+SignalFillEmptyd.__call__                     1        0.037821   0.037821   
+RandRotate90d.__call__                        1        0.035992   0.035992   
+Rotate90.__call__                             2        0.035321   0.017661   
+SignalFillEmpty.__call__                      2        0.034829   0.017414   
+Spacingd.__call__                             4        0.023117   0.005779   
+Spacing.__call__                              4        0.020700   0.005175   
+SpatialResample.__call__                      4        0.013642   0.003411   
+SpatialCrop.__call__                          4        0.003899   0.000975   
+RandCropByPosNegLabel.__call__                2        0.003390   0.001695   
+ToTensord.__call__                            2        0.002222   0.001111   
+RandFlipd.__call__                            3        0.001612   0.000537   
+ToTensor.__call__                             4        0.001357   0.000339   
+EnsureChannelFirstd.__call__                  2        0.001081   0.000541   
+EnsureChannelFirst.__call__                   4        0.000895   0.000224   
+Identityd.__call__                            3        0.000306   0.000102   
+InitLoggerd.__call__                          3        0.000039   0.000013   
+Identity.__call__                             6        0.000007   0.000001   
+
+                                                   Std           Min  \
+Compose.__call__                          2.915012e+00  5.020036e-01   
+trainer: Batch generation                 0.000000e+00  1.153629e+01   
+LoadImage.__call__                        1.511947e+00  3.162529e-01   
+LoadImaged.__call__                       1.060219e-01  4.368569e+00   
+ScaleIntensityRangePercentilesd.__call__  1.151122e-01  1.753594e+00   
+ScaleIntensityRangePercentiles.__call__   1.151174e-01  1.753501e+00   
+ScaleIntensityRange.__call__              4.300300e-02  2.981786e-01   
+NormalizeLabelsInDatasetd.__call__        2.872327e-02  1.714461e-01   
+RandCropByPosNegLabeld.__call__           0.000000e+00  3.794190e-01   
+Orientationd.__call__                     1.903855e-02  1.081288e-01   
+Orientation.__call__                      1.057357e-02  5.029617e-02   
+AddEmptySignalChannels.__call__           0.000000e+00  4.618026e-02   
+SignalFillEmptyd.__call__                 0.000000e+00  3.782084e-02   
+RandRotate90d.__call__                    0.000000e+00  3.599208e-02   
+Rotate90.__call__                         2.855400e-05  1.763196e-02   
+SignalFillEmpty.__call__                  7.184650e-05  1.734258e-02   
+Spacingd.__call__                         4.326964e-03  2.550110e-03   
+Spacing.__call__                          4.185759e-03  2.195719e-03   
+SpatialResample.__call__                  3.665777e-03  1.100364e-03   
+SpatialCrop.__call__                      1.387453e-04  8.185010e-04   
+RandCropByPosNegLabel.__call__            3.590800e-04  1.336021e-03   
+ToTensord.__call__                        4.485395e-04  6.624650e-04   
+RandFlipd.__call__                        8.242805e-06  5.278200e-04   
+ToTensor.__call__                         3.930337e-04  9.267500e-05   
+EnsureChannelFirstd.__call__              2.996700e-05  5.105670e-04   
+EnsureChannelFirst.__call__               3.918237e-05  1.877160e-04   
+Identityd.__call__                        4.011807e-05  7.236700e-05   
+InitLoggerd.__call__                      4.575313e-06  8.145000e-06   
+Identity.__call__                         3.332330e-07  8.210000e-07   
+
+                                                Max  
+Compose.__call__                           6.717568  
+trainer: Batch generation                 11.536290  
+LoadImage.__call__                         4.051878  
+LoadImaged.__call__                        4.580613  
+ScaleIntensityRangePercentilesd.__call__   1.983819  
+ScaleIntensityRangePercentiles.__call__    1.983736  
+ScaleIntensityRange.__call__               0.384185  
+NormalizeLabelsInDatasetd.__call__         0.228893  
+RandCropByPosNegLabeld.__call__            0.379419  
+Orientationd.__call__                      0.146206  
+Orientation.__call__                       0.078348  
+AddEmptySignalChannels.__call__            0.046180  
+SignalFillEmptyd.__call__                  0.037821  
+RandRotate90d.__call__                     0.035992  
+Rotate90.__call__                          0.017689  
+SignalFillEmpty.__call__                   0.017486  
+Spacingd.__call__                          0.013217  
+Spacing.__call__                           0.012390  
+SpatialResample.__call__                   0.009752  
+SpatialCrop.__call__                       0.001166  
+RandCropByPosNegLabel.__call__             0.002054  
+ToTensord.__call__                         0.001560  
+RandFlipd.__call__                         0.000548  
+ToTensor.__call__                          0.001019  
+EnsureChannelFirstd.__call__               0.000571  
+EnsureChannelFirst.__call__                0.000285  
+Identityd.__call__                         0.000159  
+InitLoggerd.__call__                       0.000019  
+Identity.__call__                          0.000002  
+[2023-12-13 10:52:27.712][INFO] cleanup - #### LOGGED ALL DATA TO ./test_output/ ############
+[2023-12-13 10:52:27.712][INFO] cleanup - Cleaning up the cache dir ./cache/0651da5a-36f0-4135-9b08-4127ecec2afc
+[2023-12-13 10:52:29.633][ERROR] _internal_run_as_gen - Engine run is terminating due to exception: 99
+[2023-12-13 10:52:29.641][INFO] run - Total Training Time 27.675796270370483
+[2023-12-13 10:52:29.642][INFO] cleanup - #### LOGGED ALL DATA TO ./test_output/ ############
+[2023-12-13 10:52:29.642][INFO] cleanup - Cleaning up the cache dir ./cache/0651da5a-36f0-4135-9b08-4127ecec2afc
+[2023-12-13 10:52:29.650][INFO] run - 
+                                          Count  Total Time (s)        Avg  \
+Compose.__call__                              4       17.200002   4.300000   
+trainer: Batch generation                     1       11.536290  11.536290   
+LoadImaged.__call__                           3       10.934280   3.644760   
+LoadImage.__call__                            6       10.933093   1.822182   
+ScaleIntensityRangePercentilesd.__call__      3        4.715680   1.571893   
+ScaleIntensityRangePercentiles.__call__       3        4.715449   1.571816   
+ScaleIntensityRange.__call__                  3        1.034990   0.344997   
+NormalizeLabelsInDatasetd.__call__            3        0.613414   0.204471   
+Orientationd.__call__                         3        0.386768   0.128923   
+Orientation.__call__                          6        0.385796   0.064299   
+RandCropByPosNegLabeld.__call__               1        0.379419   0.379419   
+AddEmptySignalChannels.__call__               1        0.046180   0.046180   
+Spacingd.__call__                             6        0.038988   0.006498   
+SignalFillEmptyd.__call__                     1        0.037821   0.037821   
+RandRotate90d.__call__                        1        0.035992   0.035992   
+Spacing.__call__                              6        0.035622   0.005937   
+Rotate90.__call__                             2        0.035321   0.017661   
+SignalFillEmpty.__call__                      2        0.034829   0.017414   
+SpatialResample.__call__                      6        0.025918   0.004320   
+SpatialCrop.__call__                          4        0.003899   0.000975   
+RandCropByPosNegLabel.__call__                2        0.003390   0.001695   
+ToTensord.__call__                            3        0.002871   0.000957   
+RandFlipd.__call__                            3        0.001612   0.000537   
+ToTensor.__call__                             6        0.001596   0.000266   
+EnsureChannelFirstd.__call__                  3        0.001593   0.000531   
+EnsureChannelFirst.__call__                   6        0.001316   0.000219   
+Identityd.__call__                            4        0.000387   0.000097   
+InitLoggerd.__call__                          3        0.000039   0.000013   
+Identity.__call__                             8        0.000010   0.000001   
+
+                                                   Std           Min  \
+Compose.__call__                          2.586205e+00  5.020036e-01   
+trainer: Batch generation                 0.000000e+00  1.153629e+01   
+LoadImaged.__call__                       1.176747e+00  1.985098e+00   
+LoadImage.__call__                        1.438625e+00  3.162529e-01   
+ScaleIntensityRangePercentilesd.__call__  4.301509e-01  9.782674e-01   
+ScaleIntensityRangePercentiles.__call__   4.301372e-01  9.782115e-01   
+ScaleIntensityRange.__call__              3.552390e-02  2.981786e-01   
+NormalizeLabelsInDatasetd.__call__        2.422875e-02  1.714461e-01   
+Orientationd.__call__                     1.574189e-02  1.081288e-01   
+Orientation.__call__                      8.721384e-03  5.029617e-02   
+RandCropByPosNegLabeld.__call__           0.000000e+00  3.794190e-01   
+AddEmptySignalChannels.__call__           0.000000e+00  4.618026e-02   
+Spacingd.__call__                         4.625386e-03  2.550110e-03   
+SignalFillEmptyd.__call__                 0.000000e+00  3.782084e-02   
+RandRotate90d.__call__                    0.000000e+00  3.599208e-02   
+Spacing.__call__                          4.574749e-03  2.195719e-03   
+Rotate90.__call__                         2.855400e-05  1.763196e-02   
+SignalFillEmpty.__call__                  7.184650e-05  1.734258e-02   
+SpatialResample.__call__                  4.324500e-03  1.100364e-03   
+SpatialCrop.__call__                      1.387453e-04  8.185010e-04   
+RandCropByPosNegLabel.__call__            3.590800e-04  1.336021e-03   
+ToTensord.__call__                        4.260577e-04  6.491600e-04   
+RandFlipd.__call__                        8.242805e-06  5.278200e-04   
+ToTensor.__call__                         3.376155e-04  9.173400e-05   
+EnsureChannelFirstd.__call__              2.796273e-05  5.105670e-04   
+EnsureChannelFirst.__call__               3.526540e-05  1.872150e-04   
+Identityd.__call__                        3.594376e-05  7.236700e-05   
+InitLoggerd.__call__                      4.575313e-06  8.145000e-06   
+Identity.__call__                         3.196862e-07  8.210000e-07   
+
+                                                Max  
+Compose.__call__                           6.717568  
+trainer: Batch generation                 11.536290  
+LoadImaged.__call__                        4.580613  
+LoadImage.__call__                         4.051878  
+ScaleIntensityRangePercentilesd.__call__   1.983819  
+ScaleIntensityRangePercentiles.__call__    1.983736  
+ScaleIntensityRange.__call__               0.384185  
+NormalizeLabelsInDatasetd.__call__         0.228893  
+Orientationd.__call__                      0.146206  
+Orientation.__call__                       0.078348  
+RandCropByPosNegLabeld.__call__            0.379419  
+AddEmptySignalChannels.__call__            0.046180  
+Spacingd.__call__                          0.013217  
+SignalFillEmptyd.__call__                  0.037821  
+RandRotate90d.__call__                     0.035992  
+Spacing.__call__                           0.012390  
+Rotate90.__call__                          0.017689  
+SignalFillEmpty.__call__                   0.017486  
+SpatialResample.__call__                   0.011064  
+SpatialCrop.__call__                       0.001166  
+RandCropByPosNegLabel.__call__             0.002054  
+ToTensord.__call__                         0.001560  
+RandFlipd.__call__                         0.000548  
+ToTensor.__call__                          0.001019  
+EnsureChannelFirstd.__call__               0.000571  
+EnsureChannelFirst.__call__                0.000285  
+Identityd.__call__                         0.000159  
+InitLoggerd.__call__                       0.000019  
+Identity.__call__                          0.000002  

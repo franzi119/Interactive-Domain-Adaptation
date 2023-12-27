@@ -34,8 +34,6 @@ from sw_fastedit.utils.distance_transform import get_random_choice_from_tensor
 from monai.transforms.utils import distance_transform_edt
 from sw_fastedit.utils.helper import get_global_coordinates_from_patch_coordinates, get_tensor_at_coordinates, timeit
 
-# from monai.transforms import DistanceTransformEDT
-
 
 logger = logging.getLogger("sw_fastedit")
 
@@ -49,12 +47,14 @@ def get_guidance_tensor_for_key_label(data, key_label, device) -> torch.Tensor:
     return tmp_gui
 
 
+# TODO Franzi - one transform class - AddExtremePoints - already included in MONAI
+
 class AddEmptySignalChannels(MapTransform):
-    def __init__(self, device, keys: KeysCollection = None):
-        """
+    """
         Adds empty channels to the signal which will be filled with the guidance signal later.
         E.g. for two labels: 1x192x192x256 -> 3x192x192x256
-        """
+    """
+    def __init__(self, device, keys: KeysCollection = None):
         super().__init__(keys)
         self.device = device
 
@@ -79,6 +79,17 @@ class AddEmptySignalChannels(MapTransform):
 
 
 class NormalizeLabelsInDatasetd(MapTransform):
+    """
+    Normalize label values according to label names dictionary
+
+    Args:
+        keys: the ``keys`` parameter will be used to get and set the actual data item to transform
+        labels: all label names
+        allow_missing_keys: whether to ignore it if keys are missing.
+        device: device this transform shall run on
+
+    Returns: data and also the new labels will be stored in data with key LABELS_KEY
+    """
     def __init__(
         self,
         keys: KeysCollection,
@@ -86,17 +97,6 @@ class NormalizeLabelsInDatasetd(MapTransform):
         allow_missing_keys: bool = False,
         device=None,
     ):
-        """
-        Normalize label values according to label names dictionary
-
-        Args:
-            keys: the ``keys`` parameter will be used to get and set the actual data item to transform
-            labels: all label names
-            allow_missing_keys: whether to ignore it if keys are missing.
-            device: device this transform shall run on
-
-        Returns: data and also the new labels will be stored in data with key LABELS_KEY
-        """
         super().__init__(keys, allow_missing_keys)
         self.labels = labels
         self.device = device
@@ -104,7 +104,7 @@ class NormalizeLabelsInDatasetd(MapTransform):
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         # Set the labels dict in case no labels were provided
         data[LABELS_KEY] = self.labels
-        
+
         for key in self.key_iterator(data):
             if key == "label":
                 try:
@@ -248,11 +248,8 @@ class AddGuidanceSignal(MapTransform):
                 assert image.is_cuda
                 tmp_image = image[0 : 0 + self.number_intensity_ch, ...]
 
-                # e.g. {'spleen': '[[1, 202, 190, 192], [2, 224, 212, 192], [1, 242, 202, 192], [1, 256, 184, 192], [2.0, 258, 198, 118]]',
-                # 'background': '[[257, 0, 98, 118], [1.0, 223, 303, 86]]'}
 
                 for _, (label_key, _) in enumerate(data[LABELS_KEY].items()):
-                    # label_guidance = data[label_key]
                     label_guidance = get_guidance_tensor_for_key_label(data, label_key, self.device)
                     logger.debug(f"Converting guidance for label {label_key}:{label_guidance} into a guidance signal..")
 
@@ -264,7 +261,6 @@ class AddGuidanceSignal(MapTransform):
                         )
                         assert torch.sum(signal) > 0
                     else:
-                        # TODO can speed this up here
                         signal = self._get_corrective_signal(
                             image,
                             torch.Tensor([]).to(device=self.device),

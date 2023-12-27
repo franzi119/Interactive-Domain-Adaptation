@@ -20,7 +20,7 @@ dependencies = [
 [build-system]
 requires = [
   "wheel",
-  "setuptools",
+  "setuptools==68.2.2",
   "torch>=1.7",
   "ninja",
 ]

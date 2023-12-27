@@ -39,7 +39,7 @@ class Interaction:
 
     More details about this can be found at:
 
-        TODO add our paper
+        https://arxiv.org/abs/2311.14482
 
     The code is based on:
         Diaz-Pinto et al., MONAI Label: A framework for AI-assisted Interactive
@@ -106,7 +106,10 @@ class Interaction:
         self.click_generation_strategy_key = click_generation_strategy_key
         self.dice_loss_function = DiceLoss(include_background=False, to_onehot_y=True, softmax=True)
         self.non_interactive = non_interactive
-
+    """
+    TODO Franzi:
+        # self.extreme_points = True
+    """
     @timeit
     def __call__(
         self,
@@ -156,6 +159,10 @@ class Interaction:
                         logger.warning("No valid labels for this sample (probably due to crop)")
 
             if self.non_interactive:
+                break
+
+            if self.extreme_points:
+                # Add extreme points (TODO Franzi)
                 break
 
             if self.stopping_criterion in [

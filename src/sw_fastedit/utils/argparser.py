@@ -113,7 +113,7 @@ def parse_args():
         "-n",
         "--network",
         default="dynunet",
-        choices=["dynunet", "smalldynunet", "bigdynunet", "bigdynunet2", "matteodynunet"],
+        choices=["dynunet", "smalldynunet", "bigdynunet"],
     )
     parser.add_argument(
         "-in",
