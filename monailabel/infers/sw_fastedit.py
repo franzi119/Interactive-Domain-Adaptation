@@ -106,6 +106,7 @@ class SWFastEdit(BasicInferTask):
             labels=labels,
             dimension=dimension,
             description=description,
+            load_strict = True,
             **kwargs,
         )
         self.label_names = label_names
@@ -113,6 +114,7 @@ class SWFastEdit(BasicInferTask):
 
         set_determinism(42)
         self.model_state_dict = "net"
+  
         self.load_strict = True
         self._amp = True
         # Either no crop with None or crop like (128,128,128), sliding window does not need this parameter unless

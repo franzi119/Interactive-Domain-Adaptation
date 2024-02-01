@@ -74,6 +74,8 @@ def get_random_choice_from_tensor(
         flattened_t_cp = clipped_distance.flatten()
 
         probability = cp.exp(flattened_t_cp) - 1.0
+
+        #print('Zrrr playing around', cp.max(probability))
         idx = cp.where(flattened_t_cp > 0)[0]
         probabilities = probability[idx] / cp.sum(probability[idx])
         assert idx.shape == probabilities.shape

@@ -13,6 +13,7 @@ import logging
 import os
 from typing import Any, Dict, Optional, Union
 
+import torch
 import lib.infers
 import lib.trainers
 from monai.networks.nets import BasicUNet
@@ -49,10 +50,12 @@ class SWFastEditConfig(TaskConfig):
             os.path.join(self.model_dir, f"pretrained_{name}.pt"),  # pretrained
             os.path.join(self.model_dir, f"{name}.pt"),  # published
         ]
+        
+        self.model_state_dict="net",
 
         # Download PreTrained Model
         # Model is pretrained on PET scans from the AutoPET dataset
-        if strtobool(self.conf.get("use_pretrained_model", "true")):
+        if strtobool(self.conf.get("use_pretrained_model", "true")): 
             url = f"{self.conf.get('pretrained_path', self.PRE_TRAINED_PATH)}"
             url = f"{url}/sw_fastedit_pet.pt"
             print(f"Downloading from {self.path[0]}")
@@ -71,6 +74,8 @@ class SWFastEditConfig(TaskConfig):
             deep_supervision=False,
             res_block=True,
         )
+
+
 
         AUTOPET_SPACING = (2.03642011, 2.03642011, 3.0)
         self.target_spacing = AUTOPET_SPACING # AutoPET default

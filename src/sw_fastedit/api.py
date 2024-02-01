@@ -562,7 +562,7 @@ def get_test_evaluator(
         map_location = device
         checkpoint = torch.load(resume_from)
         logger.info(f"{checkpoint.keys()=}")
-        network.load_state_dict(checkpoint["net"])
+        network.load_state_dict(checkpoint["net"]) 
         handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
         handler(evaluator)
 
@@ -622,6 +622,7 @@ def get_supervised_evaluator(
             click_generation_strategy=args.val_click_generation,
             stopping_criterion=args.val_click_generation_stopping_criterion,
             non_interactive=args.non_interactive,
+            output_dir=args.output_dir,
             # add extreme points argument TODO Franzi
         )
         if not args.non_interactive
@@ -801,6 +802,8 @@ def get_trainer(
             iteration_probability=args.train_iteration_probability,
             loss_stopping_threshold=args.train_loss_stopping_threshold,
             non_interactive=args.non_interactive,
+            output_dir=args.output_dir,
+
         )
         if not args.non_interactive
         else None,

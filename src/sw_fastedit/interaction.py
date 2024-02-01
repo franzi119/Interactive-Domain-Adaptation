@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import time
+import os
 from typing import Callable, Dict, Sequence, Union
 
 import nibabel as nib
@@ -22,11 +23,13 @@ from monai.data import decollate_batch, list_data_collate
 from monai.engines import SupervisedEvaluator, SupervisedTrainer
 from monai.engines.utils import IterationEvents
 from monai.losses import DiceLoss
-from monai.transforms import Compose
+from monai.transforms import Compose, ToDeviced, EnsureChannelFirstd, AsDiscreted
+from monai.metrics import DiceMetric
 from monai.utils.enums import CommonKeys
 
 from sw_fastedit.click_definitions import ClickGenerationStrategy, StoppingCriterion
 from sw_fastedit.utils.helper import get_gpu_usage, timeit
+
 
 logger = logging.getLogger("sw_fastedit")
 
@@ -87,6 +90,7 @@ class Interaction:
         nifti_post_transform=None,
         loss_function=None,
         non_interactive=False,
+        output_dir=None,
     ) -> None:
         self.deepgrow_probability = deepgrow_probability
         self.transforms = Compose(transforms) if not isinstance(transforms, Compose) else transforms  # click transforms
@@ -105,7 +109,10 @@ class Interaction:
         self.loss_stopping_threshold = loss_stopping_threshold
         self.click_generation_strategy_key = click_generation_strategy_key
         self.dice_loss_function = DiceLoss(include_background=False, to_onehot_y=True, softmax=True)
+        self.dice_metric = DiceMetric(include_background=False, reduction="mean", get_not_nans=False)
+
         self.non_interactive = non_interactive
+        self.output_dir = output_dir
     """
     TODO Franzi:
         # self.extreme_points = True
@@ -136,9 +143,12 @@ class Interaction:
         )
 
         iteration = 0
+        dice_scores = []
         last_dice_loss = 1
         before_it = time.time()
         while True:
+
+
             assert iteration < 1000
             # Shape for interactive image e.g. 3x192x192x256, label 1x192x192x256
             # BCHWD
@@ -160,11 +170,11 @@ class Interaction:
 
             if self.non_interactive:
                 break
-
+            '''
             if self.extreme_points:
                 # Add extreme points (TODO Franzi)
                 break
-
+            '''
             if self.stopping_criterion in [
                 StoppingCriterion.MAX_ITER,
                 StoppingCriterion.MAX_ITER_AND_PROBABILITY,
@@ -175,6 +185,10 @@ class Interaction:
                 # Abort if run for max_interactions
                 if iteration > self.max_interactions - 1:
                     logger.info("MAX_ITER stop")
+                    if 'gdt' not in self.output_dir:
+                        os.makedirs(os.path.join(self.output_dir, 'dice_scores'), exist_ok=True)
+                        logger.info(f"Saving dice scores at {os.path.join(self.output_dir, 'dice_scores', batchdata['image_meta_dict']['filename_or_obj'][0].split('/')[-1]).replace('nii.gz', 'npy')}, {np.array(dice_scores)}")
+                        np.save(os.path.join(self.output_dir, 'dice_scores', batchdata['image_meta_dict']['filename_or_obj'][0].split('/')[-1]).replace('nii.gz', 'npy'), np.array(dice_scores))
                     break
             if self.stopping_criterion in [StoppingCriterion.MAX_ITER_AND_PROBABILITY]:
                 # Abort based on the per iteration probability
@@ -215,12 +229,18 @@ class Interaction:
                         predictions = engine.inferer(inputs, engine.network)
                 else:
                     predictions = engine.inferer(inputs, engine.network)
-
+            
             batchdata[CommonKeys.PRED] = predictions
 
             last_dice_loss = self.dice_loss_function(batchdata[CommonKeys.PRED], batchdata[CommonKeys.LABEL]).item()
+            last_dice_metric = self.dice_metric(y_pred=torch.argmax(batchdata[CommonKeys.PRED], dim=1, keepdims=True), y=batchdata[CommonKeys.LABEL]).item()
+            dice_scores.append(last_dice_metric)
+            
+
+
+
             logger.info(
-                f"It: {iteration} {self.dice_loss_function.__class__.__name__}: {last_dice_loss:.4f} Epoch: {engine.state.epoch}"
+                f"It: {iteration} {self.dice_loss_function.__class__.__name__}: {last_dice_loss:.4f} {self.dice_metric.__class__.__name__}: {last_dice_metric:.4f} Epoch: {engine.state.epoch}"
             )
 
             if self.save_nifti:

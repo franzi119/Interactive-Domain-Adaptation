@@ -1,8 +1,0 @@
-Metadata-Version: 2.1
-Name: sw-fastedit
-Version: 0.9.0
-Author: Matthias Hadlich, Zdravko Marinov, MONAI
-Requires-Python: >=3.9
-License-File: LICENSE
-Requires-Dist: requests
-Requires-Dist: importlib-metadata; python_version < "3.8"

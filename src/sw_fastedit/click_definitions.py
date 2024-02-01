@@ -19,6 +19,7 @@ class ClickGenerationStrategy(IntEnum):
     GLOBAL_CORRECTIVE = 2
     PATCH_BASED_CORRECTIVE = 3
     DEEPGROW_GLOBAL_CORRECTIVE = 4
+    READ_FROM_JSON = 5
 
 
 class StoppingCriterion(IntEnum):

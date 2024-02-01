@@ -12,6 +12,8 @@
 from __future__ import annotations
 
 import gc
+import os
+import json
 import logging
 from typing import Dict, Hashable, List, Mapping, Tuple
 
@@ -26,13 +28,20 @@ from monai.transforms import (
     Compose,
     MapTransform,
     Randomizable,
+    LazyTransform,
+    InvertibleTransform,
+    Flip,
 )
+from collections.abc import Hashable, Mapping, Sequence
+
+
 from monai.utils.enums import CommonKeys
 
 from sw_fastedit.click_definitions import LABELS_KEY, ClickGenerationStrategy
 from sw_fastedit.utils.distance_transform import get_random_choice_from_tensor
 from monai.transforms.utils import distance_transform_edt
 from sw_fastedit.utils.helper import get_global_coordinates_from_patch_coordinates, get_tensor_at_coordinates, timeit
+from FastGeodis import generalised_geodesic3d
 
 
 logger = logging.getLogger("sw_fastedit")
@@ -60,7 +69,7 @@ class AddEmptySignalChannels(MapTransform):
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         # Set up the initial batch data
-        in_channels = 1 + len(data[LABELS_KEY])
+        in_channels = 1 + len(data[LABELS_KEY]) 
         tmp_image = data[CommonKeys.IMAGE][0 : 0 + 1, ...]
         assert len(tmp_image.shape) == 4
         new_shape = list(tmp_image.shape)
@@ -68,7 +77,7 @@ class AddEmptySignalChannels(MapTransform):
         # Set the signal to 0 for all input images
         # image is on channel 0 of e.g. (1,128,128,128) and the signals get appended, so
         # e.g. (3,128,128,128) for two labels
-        inputs = torch.zeros(new_shape, device=self.device)
+        inputs = torch.zeros(new_shape) #, device=self.device)
         inputs[0] = data[CommonKeys.IMAGE][0]
         if isinstance(data[CommonKeys.IMAGE], MetaTensor):
             data[CommonKeys.IMAGE].array = inputs
@@ -160,12 +169,16 @@ class AddGuidanceSignal(MapTransform):
         number_intensity_ch: int = 1,
         allow_missing_keys: bool = False,
         disks: bool = False,
+        gdt: bool = False,
+        spacing: Tuple = None,
         device=None,
     ):
         super().__init__(keys, allow_missing_keys)
         self.sigma = sigma
         self.number_intensity_ch = number_intensity_ch
         self.disks = disks
+        self.gdt = gdt
+        self.spacing = spacing
         self.device = device
 
     def _get_corrective_signal(self, image, guidance, key_label):
@@ -219,12 +232,28 @@ class AddGuidanceSignal(MapTransform):
                 if self.disks:
                     signal[0] = (signal[0] > 0.1) * 1.0  # 0.1 with sigma=1 --> radius = 3, otherwise it is a cube
 
-            if not (torch.min(signal[0]).item() >= 0 and torch.max(signal[0]).item() <= 1.0):
+                if self.gdt:
+                    geos = generalised_geodesic3d(image.unsqueeze(0).to(self.device),
+                                                signal[0].unsqueeze(0).unsqueeze(0).to(self.device),
+                                                self.spacing,
+                                                10e10,
+                                                1.0,
+                                                2)
+
+
+
+
+                    signal[0] = geos[0][0]
+
+            if not (torch.min(signal[0]).item() >= 0 and torch.max(signal[0]).item() <= 1.0) and (not self.gdt):
                 raise UserWarning(
                     "[WARNING] Bad signal values",
                     torch.min(signal[0]),
                     torch.max(signal[0]),
                 )
+
+
+
             if signal is None:
                 raise UserWarning("[ERROR] Signal is None")
             return signal
@@ -245,7 +274,7 @@ class AddGuidanceSignal(MapTransform):
         for key in self.key_iterator(data):
             if key == "image":
                 image = data[key]
-                assert image.is_cuda
+                assert image.is_cuda 
                 tmp_image = image[0 : 0 + self.number_intensity_ch, ...]
 
 
@@ -259,7 +288,8 @@ class AddGuidanceSignal(MapTransform):
                             label_guidance.to(device=self.device),
                             key_label=label_key,
                         )
-                        assert torch.sum(signal) > 0
+                        if not self.gdt:
+                            assert torch.sum(signal) > 0
                     else:
                         signal = self._get_corrective_signal(
                             image,
@@ -267,8 +297,8 @@ class AddGuidanceSignal(MapTransform):
                             key_label=label_key,
                         )
 
-                    assert signal.is_cuda
-                    assert tmp_image.is_cuda
+                    assert signal.is_cuda 
+                    assert tmp_image.is_cuda 
                     tmp_image = torch.cat([tmp_image, signal], dim=0)
                     if isinstance(data[key], MetaTensor):
                         data[key].array = tmp_image
@@ -381,6 +411,8 @@ class AddGuidance(Randomizable, MapTransform):
         device=None,
         click_generation_strategy_key: str = "click_generation_strategy",
         patch_size: Tuple[int] = (128, 128, 128),
+        load_from_json: bool = False,
+        json_dir : str = None,
     ):
         super().__init__(keys, allow_missing_keys)
         self.discrepancy_key = discrepancy_key
@@ -391,6 +423,8 @@ class AddGuidance(Randomizable, MapTransform):
         self.device = device
         self.click_generation_strategy_key = click_generation_strategy_key
         self.patch_size = patch_size
+        self.load_from_json = load_from_json
+        self.json_dir = json_dir
 
     def randomize(self, data: Mapping[Hashable, torch.Tensor]):
         probability = data[self.probability_key]
@@ -398,7 +432,7 @@ class AddGuidance(Randomizable, MapTransform):
 
     def find_guidance(self, discrepancy) -> List[int | List[int]] | None:
         assert discrepancy.is_cuda
-        distance = distance_transform_edt(discrepancy)
+        distance = distance_transform_edt(discrepancy) 
         t_index, t_value = get_random_choice_from_tensor(distance)
         return t_index
 
@@ -474,7 +508,21 @@ class AddGuidance(Randomizable, MapTransform):
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         click_generation_strategy = data[self.click_generation_strategy_key]
 
-        if click_generation_strategy == ClickGenerationStrategy.GLOBAL_NON_CORRECTIVE:
+        if self.load_from_json:
+            assert self.json_dir is not None
+
+            for idx, (key_label, _) in enumerate(data[LABELS_KEY].items()):
+                num_clicks = len(data[key_label]) + 1 if key_label in data.keys() else 1
+
+                im_fn = data['image_meta_dict']['filename_or_obj'].split('/')[-1]
+                json_fn = os.path.join(self.json_dir, im_fn.replace('.nii.gz', '_clicks.json'))
+                with open(json_fn, 'r') as f:
+                    json_data = json.load(f)
+                    json_data[key_label] = [[0] + el for el in json_data[key_label]]
+                    json_data[key_label] = json_data[key_label][:num_clicks]
+                data[key_label] = json_data[key_label]
+
+        elif click_generation_strategy == ClickGenerationStrategy.GLOBAL_NON_CORRECTIVE:
             # uniform random sampling on label
             for idx, (key_label, _) in enumerate(data[LABELS_KEY].items()):
                 tmp_gui = get_guidance_tensor_for_key_label(data, key_label, self.device)
@@ -548,6 +596,7 @@ class AddGuidance(Randomizable, MapTransform):
         else:
             raise UserWarning("Unknown click strategy")
 
+
         return data
 
 
@@ -567,3 +616,67 @@ class SplitPredsLabeld(MapTransform):
             elif key != "pred":
                 logger.info("This transform is only for pred key")
         return data
+
+
+class FlipChanneld(MapTransform, InvertibleTransform, LazyTransform):
+    """
+    A transformation class to flip specified channels along the specified spatial axis in tensor-like data.
+    This is an invertible transform and can be applied lazily.
+
+    Args:
+        keys: Keys specifying the data in the dictionary to be processed.
+        spatial_axis: Spatial axis or axes along which flipping should occur.
+        channels: Channels to be flipped.
+        allow_missing_keys: If True, allows for keys in `keys` to be missing in the input dictionary.
+        lazy: If True, the transform is applied lazily.
+    """
+
+    def __init__(
+        self,
+        keys: KeysCollection,
+        spatial_axis: Sequence[int] | int | None = None,
+        channels: Sequence[int] | int | None = None,
+        allow_missing_keys: bool = False,
+        lazy: bool = False,
+    ) -> None:
+        MapTransform.__init__(self, keys, allow_missing_keys)
+        LazyTransform.__init__(self, lazy=lazy)
+        self.flipper = Flip(spatial_axis=spatial_axis)
+        self.channels = channels
+
+    @LazyTransform.lazy.setter  # type: ignore
+    def lazy(self, val: bool):
+        self.flipper.lazy = val
+        self._lazy = val
+
+
+
+    def __call__(self, data: Mapping[Hashable, torch.Tensor], lazy: bool | None = None) -> dict[Hashable, torch.Tensor]:
+        """
+        Args:
+            data: a dictionary containing the tensor-like data to be processed. The ``keys`` specified
+                in this dictionary must be tensor like arrays that are channel first and have at most
+                three spatial dimensions
+            lazy: a flag to indicate whether this transform should execute lazily or not
+                during this call. Setting this to False or True overrides the ``lazy`` flag set
+                during initialization for this call. Defaults to None.
+
+        Returns:
+            a dictionary containing the transformed data, as well as any other data present in the dictionary
+        """
+        d = dict(data)
+        lazy_ = self.lazy if lazy is None else lazy
+        for key in self.key_iterator(d):
+            for channel in self.channels:
+                d[key][channel:channel+1] = self.flipper(d[key][channel:channel+1], lazy=lazy_)
+        return d
+
+
+
+
+    def inverse(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
+        d = dict(data)
+        for key in self.key_iterator(d):
+            for channel in self.channels:
+                d[key][channel:channel+1] = self.flipper.inverse(d[key][channel:channel+1])
+        return d

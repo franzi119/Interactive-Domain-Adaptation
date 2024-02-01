@@ -40,9 +40,14 @@ from monai.transforms import (
     ScaleIntensityRangePercentilesd,
     SignalFillEmptyd,
     Spacingd,
+    SplitDimd,
     ToDeviced,
     ToTensord,
+    ConcatItemsd,
     VoteEnsembled,
+    DeleteItemsd,
+    Flipd,
+    SqueezeDimd,
 )
 from monai.utils.enums import CommonKeys
 
@@ -60,6 +65,7 @@ from sw_fastedit.transforms import (
     FindDiscrepancyRegions,
     NormalizeLabelsInDatasetd,
     SplitPredsLabeld,
+    FlipChanneld,
 )
 from sw_fastedit.utils.helper import convert_mha_to_nii, convert_nii_to_mha
 
@@ -171,7 +177,7 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             else Identityd(keys=input_keys, allow_missing_keys=True),
             # 0.05 and 99.95 percentiles of the spleen HUs, either manually or automatically
             ScaleIntensityRanged(keys="image", a_min=0, a_max=43, b_min=0.0, b_max=1.0, clip=True)
-            if args.use_scale_intensity_ranged
+            if args.scale_intensity_ranged
             else ScaleIntensityRangePercentilesd(
                 keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             ),
@@ -271,7 +277,7 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             else Identityd(keys=input_keys, allow_missing_keys=True),
             # 0.05 and 99.95 percentiles of the spleen HUs, either manually or automatically
             ScaleIntensityRanged(keys="image", a_min=0, a_max=43, b_min=0.0, b_max=1.0, clip=True)
-            if args.use_scale_intensity_ranged
+            if args.scale_intensity_ranged
             else ScaleIntensityRangePercentilesd(
                 keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             ),
@@ -282,6 +288,8 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             if not args.non_interactive
             else Identityd(keys=input_keys, allow_missing_keys=True),
         ]
+        
+
 
     if args.debug:
         for i in range(len(t)):
@@ -328,15 +336,24 @@ def get_click_transforms(device, args):
             discrepancy_key="discrepancy",
             probability_key="probability",
             device=device,
+            load_from_json=args.load_from_json,
+            json_dir=args.json_dir,
         ),
         # Overwrites the image entry
         AddGuidanceSignal(
             keys="image",
             sigma=args.sigma,
             disks=(not args.no_disks),
+            gdt=args.gdt,
+            spacing=spacing,
             device=device,
         ),
+        FlipChanneld(keys=("image"), spatial_axis=0, channels=[1,2], allow_missing_keys=True) # Slicer clicks are flipped when saved from the monailabel server
+        if args.load_from_json
+        else Identityd(keys=("image"), allow_missing_keys=True),
+
         ToTensord(keys=("image", "label", "pred"), device=cpu_device)
+
         if args.sw_cpu_output
         else Identityd(keys=("pred",), allow_missing_keys=True),
     ]
@@ -366,11 +383,15 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
 
     input_keys = ("pred",)
     t = [
-        CopyItemsd(keys=("pred",), times=1, names=("pred_for_save",))
+        SplitDimd(keys=("image",))
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+
+        CopyItemsd(keys=("pred", "image_1", "image_2", "label", "image_0"), times=1, names=("pred_for_save", "tumor_for_save", "background_for_save", "label_for_save", "image_for_save",))
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
         Invertd(
-            keys=("pred_for_save",),
+            keys=("pred_for_save", "label_for_save",),
             orig_keys="image",
             nearest_interp=False,
             transform=pretransform,
@@ -393,9 +414,53 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
             keys=("pred_for_save",),
             writer="ITKWriter",
             output_dir=os.path.join(output_dir, "predictions"),
-            output_postfix="",
+            output_postfix="pred",
             output_dtype=np.uint8,
-            separate_folder=False,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("label_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="label",
+            output_dtype=np.uint8,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("tumor_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="tumor",
+            output_dtype=np.float32,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("background_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="background",
+            output_dtype=np.float32,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("image_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="image",
+            output_dtype=np.float32,
+            separate_folder=True,
             resample=False,
         )
         if save_pred

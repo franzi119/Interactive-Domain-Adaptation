@@ -153,7 +153,7 @@ def parse_args():
     parser.add_argument("--resume_from", type=str, default="None")
     # Use this parameter to change the scheduler..
     parser.add_argument("--resume_override_scheduler", default=False, action="store_true")
-    parser.add_argument("--use_scale_intensity_ranged", default=False, action="store_true")
+    parser.add_argument("--scale_intensity_ranged", default=False, action="store_true")
     parser.add_argument("--additional_metrics", default=False, action="store_true")
     # Can speed up the training by cropping away some percentiles of the data
     parser.add_argument("--crop_foreground", default=False, action="store_true")
@@ -176,9 +176,16 @@ def parse_args():
     parser.add_argument("-dpt", "--deepgrow_probability_train", type=float, default=1.0)
     parser.add_argument("-dpv", "--deepgrow_probability_val", type=float, default=1.0)
 
+    parser.add_argument("--load_from_json", default=False, action="store_true")
+    parser.add_argument("--json_dir", type=str, default=None)
+
+
+
     # Guidance Signal Hyperparameters
     parser.add_argument("--sigma", type=int, default=1)
     parser.add_argument("--no_disks", default=False, action="store_true")
+    parser.add_argument("--gdt", default=False, action="store_true")
+
 
     # Guidance Signal Click Generation - for details see the mappings below
     parser.add_argument("-tcg", "--train_click_generation", type=int, default=2, choices=[1, 2])

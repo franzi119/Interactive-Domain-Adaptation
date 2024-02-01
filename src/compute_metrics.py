@@ -79,7 +79,7 @@ def run(args):
         batchdata["label"] = batchdata["label"].unsqueeze(0)
 
         print(f"{pred_file_name}:: pred.shape: {batchdata['pred'].shape} label.shape: {batchdata['label'].shape}")
-        dice_metric(y_pred=batchdata["pred"], y=batchdata["label"])
+        print(dice_metric(y_pred=batchdata["pred"], y=batchdata["label"]))
         surface_dice_metric(y_pred=batchdata["pred"], y=batchdata["label"])
         filenames.append(pred_file_name)
 

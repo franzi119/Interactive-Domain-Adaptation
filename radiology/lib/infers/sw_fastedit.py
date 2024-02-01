@@ -43,6 +43,9 @@ from monai.transforms import (
     Spacingd,
     # ToNumpyd,
     SqueezeDimd,
+    SaveImaged,
+    SplitDimd,
+    CopyItemsd,
     # MapTransform,
     Compose,
 )
@@ -97,6 +100,7 @@ class SWFastEdit(BasicInferTask):
         dimension=3,
         target_spacing=(2.03642011, 2.03642011, 3.0),
         description="",
+        model_state_dict="net",
         **kwargs,
     ):
         super().__init__(
@@ -106,8 +110,10 @@ class SWFastEdit(BasicInferTask):
             labels=labels,
             dimension=dimension,
             description=description,
+            model_state_dict=model_state_dict,
             **kwargs,
         )
+        self.path = path
         self.label_names = label_names
         self.target_spacing = target_spacing
 
@@ -143,11 +149,20 @@ class SWFastEdit(BasicInferTask):
         # print("#########################################")
         # data['label_dict'] = self.label_names
         data['label_names'] = self.label_names
-        
+
+
+
+
+
         # Make sure the click keys already exist
         for label in self.label_names:
             if not label in data:
                 data[label] = []
+
+        #data['tumor'] = json_data['tumor']
+        #data['background'] = json_data['background']
+
+        #print('DATA TUMOR', data['tumor'])
         # data['click_path'] = self.click_path
 
         cpu_device = torch.device("cpu")
@@ -177,11 +192,43 @@ class SWFastEdit(BasicInferTask):
                 device=device,
             ),
             Orientationd(keys=input_keys, axcodes="RAS"),
+            SplitDimd(keys=("image",)),
+
+            CopyItemsd(keys=("image_1", "image_2", "image_0"), times=1, names=("tumor_for_save", "background_for_save", "image_for_save",)),
+
+            SaveImaged(
+                keys=("image_0",),
+                writer="ITKWriter",
+                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
+                output_postfix="image_monailabel",
+                output_dtype=np.float32,
+                separate_folder=True,
+                resample=False,
+            ),
+            SaveImaged(
+                keys=("image_1",),
+                writer="ITKWriter",
+                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
+                output_postfix="tumor_monailabel",
+                output_dtype=np.uint8,
+                separate_folder=True,
+                resample=False,
+            ),
+            SaveImaged(
+                keys=("image_2",),
+                writer="ITKWriter",
+                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
+                output_postfix="background_monailabel",
+                output_dtype=np.uint8,
+                separate_folder=True,
+                resample=False,
+            ),
             Spacingd(keys=input_keys, pixdim=self.target_spacing),
             CenterSpatialCropd(keys=input_keys, roi_size=self.val_crop_size)
             if self.val_crop_size is not None
             else Identityd(keys=input_keys, allow_missing_keys=True),
             EnsureTyped(keys=input_keys, device=device),
+
         ]
         t.extend(t_val_2)
         return t
@@ -211,6 +258,15 @@ class SWFastEdit(BasicInferTask):
             AsDiscreted(keys="pred", argmax=True),
             SqueezeDimd(keys="pred", dim=0),
             EnsureTyped(keys="pred", device="cpu" if data else None, dtype=torch.uint8),
+            SaveImaged(
+                keys=("pred",),
+                writer="ITKWriter",
+                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
+                output_postfix="pred_monailabel",
+                output_dtype=np.uint8,
+                separate_folder=True,
+                resample=False,
+            )
         ]
 
 def post_callback(data): 
