@@ -43,11 +43,8 @@ from monai.transforms import (
     SplitDimd,
     ToDeviced,
     ToTensord,
-    ConcatItemsd,
     VoteEnsembled,
-    DeleteItemsd,
-    Flipd,
-    SqueezeDimd,
+
 )
 from monai.utils.enums import CommonKeys
 
@@ -60,9 +57,8 @@ from sw_fastedit.helper_transforms import (
 )
 from sw_fastedit.transforms import (
     AddEmptySignalChannels,
-    AddGuidance,
+    AddExtremePointsChanneld,
     AddGuidanceSignal,
-    FindDiscrepancyRegions,
     NormalizeLabelsInDatasetd,
     SplitPredsLabeld,
     FlipChanneld,
@@ -113,6 +109,7 @@ def get_spacing(args):
     AUTOPET_SPACING = (2.03642011, 2.03642011, 3.0)
     MSD_SPLEEN_SPACING = (2 * 0.79296899, 2 * 0.79296899, 5.0)
     HECKTOR_SPACING = (2.03642011, 2.03642011, 3.0)
+    
     # TODO Franzi Define Prostate Spacings
 
     if args.dataset == "AutoPET" or args.dataset == "AutoPET2" or args.dataset == "AutoPET2_Challenge":
@@ -124,7 +121,7 @@ def get_spacing(args):
     else:
         raise UserWarning(f"No valid dataset found: {args.dataset}")
 
-
+#TODO: Franzi change transforms for AMOS dataset
 def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("image", "label")):
     """
     Get a list of pre-transforms for training data.
@@ -219,7 +216,7 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
 
     return t
 
-
+#TODO: Franzi for AMOS dataset
 def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("image", "label")):
     """
     Get a list of pre-transforms for validation data.
@@ -326,20 +323,18 @@ def get_click_transforms(device, args):
     cpu_device = torch.device("cpu")
 
     logger.info(f"{device=}")
-
+    print("label: ")
     t = [
         Activationsd(keys="pred", softmax=True),
         AsDiscreted(keys="pred", argmax=True),
-        FindDiscrepancyRegions(keys="label", pred_key="pred", discrepancy_key="discrepancy", device=device),
-        AddGuidance(
-            keys="NA",
-            discrepancy_key="discrepancy",
-            probability_key="probability",
-            device=device,
-            load_from_json=args.load_from_json,
-            json_dir=args.json_dir,
-        ),
-        # Overwrites the image entry
+       
+        AddExtremePointsChanneld(
+            keys = "image", 
+            label_key = "label",
+            sigma = args.sigma,
+
+            ),
+         #Overwrites the image entry
         AddGuidanceSignal(
             keys="image",
             sigma=args.sigma,

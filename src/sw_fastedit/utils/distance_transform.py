@@ -91,3 +91,54 @@ def get_random_choice_from_tensor(
         # g[0] = dst.item()
     assert len(g) == len(t_cp.shape), f"g has wrong dimensions! {len(g)} != {len(t_cp.shape)}"
     return index, dst.item()
+
+
+
+def get_border_points_from_mask(
+    mask: torch.Tensor | cp.ndarray,
+    num_points: int = 1,
+    max_threshold: int = None,
+) -> Tuple[List[List[int]], List[float]] | None:
+    device = mask.device
+    
+    with cp.cuda.Device(device.index):
+        if not isinstance(mask, cp.ndarray):
+            mask_cp = cp.asarray(mask)
+        else:
+            mask_cp = mask
+
+        # Probability transform
+        if max_threshold is None:
+            # divide by the maximum number of elements in a volume, otherwise we will get overflows
+            max_threshold = int(cp.floor(cp.log(cp.finfo(cp.float32).max))) / (800 * 800 * 800)
+
+        # Clip the mask to avoid overflows and negative probabilities
+        clipped_mask = mask_cp.clip(min=0, max=max_threshold)
+
+        flattened_mask = clipped_mask.flatten()
+
+        probability = cp.exp(flattened_mask) - 1.0
+        idx = cp.where(flattened_mask > 0)[0]
+        probabilities = probability[idx] / cp.sum(probability[idx])
+        assert idx.shape == probabilities.shape
+        assert cp.all(cp.greater_equal(probabilities, 0))
+
+        # Identify border points
+        border_indices = cp.where((mask_cp > 0) & (cp.roll(mask_cp, 1, axis=0) == 0))[0]
+        border_probabilities = probability[border_indices] / cp.sum(probability[border_indices])
+
+        # Ensure there are enough border points
+        if len(border_indices) < num_points:
+            return None
+
+        # Choosing elements based on the probabilities
+        seeds = cp.random.choice(a=border_indices, size=num_points, p=border_probabilities)
+        dst_values = [flattened_mask[seed].item() for seed in seeds]
+
+        # Get the elements' indices
+        indices = [cp.asarray(cp.unravel_index(seed, mask_cp.shape)).transpose().tolist()[0] for seed in seeds]
+
+    for g in indices:
+        assert len(g) == len(mask_cp.shape), f"g has wrong dimensions! {len(g)} != {len(mask_cp.shape)}"
+    
+    return indices[0], dst_values[0]

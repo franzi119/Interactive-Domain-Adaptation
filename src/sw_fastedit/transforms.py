@@ -32,16 +32,28 @@ from monai.transforms import (
     InvertibleTransform,
     Flip,
 )
+
 from collections.abc import Hashable, Mapping, Sequence
+
+#import for AddExtremePointsChanneld
+from monai.config.type_definitions import NdarrayOrTensor
+from monai.transforms.utility.array import AddExtremePointsChannel
+from monai.transforms.utils import extreme_points_to_image, get_extreme_points
+from monai.transforms.utils_pytorch_numpy_unification import concatenate
+from monai.utils.type_conversion import convert_to_dst_type
+from monai.transforms.utils import check_non_lazy_pending_ops
+from monai.transforms.utils_pytorch_numpy_unification import where
+import numpy as np
+
 
 
 from monai.utils.enums import CommonKeys
 
 from sw_fastedit.click_definitions import LABELS_KEY, ClickGenerationStrategy
-from sw_fastedit.utils.distance_transform import get_random_choice_from_tensor
+from sw_fastedit.utils.distance_transform import get_random_choice_from_tensor, get_border_points_from_mask
 from monai.transforms.utils import distance_transform_edt
 from sw_fastedit.utils.helper import get_global_coordinates_from_patch_coordinates, get_tensor_at_coordinates, timeit
-from FastGeodis import generalised_geodesic3d
+#from FastGeodis import generalised_geodesic3d
 
 
 logger = logging.getLogger("sw_fastedit")
@@ -57,6 +69,146 @@ def get_guidance_tensor_for_key_label(data, key_label, device) -> torch.Tensor:
 
 
 # TODO Franzi - one transform class - AddExtremePoints - already included in MONAI
+
+
+class AddExtremePointsChanneld(Randomizable, MapTransform):
+    """
+    Dictionary-based wrapper of :py:class:`monai.transforms.AddExtremePointsChannel`.
+
+    Args:
+        keys: keys of the corresponding items to be transformed.
+            See also: :py:class:`monai.transforms.compose.MapTransform`
+        label_key: key to label source to get the extreme points.
+        background: Class index of background label, defaults to 0.
+        pert: Random perturbation amount to add to the points, defaults to 0.0.
+        sigma: if a list of values, must match the count of spatial dimensions of input data,
+            and apply every value in the list to 1 spatial dimension. if only 1 value provided,
+            use it for all spatial dimensions.
+        rescale_min: minimum value of output data.
+        rescale_max: maximum value of output data.
+        allow_missing_keys: don't raise exception if key is missing.
+
+    """
+
+    backend = AddExtremePointsChannel.backend
+    
+
+    def __init__(
+        self,
+        keys: KeysCollection,
+        label_key: str,
+        background: int = 0,
+        pert: float = 0.0,
+        sigma: Sequence[float] | float | Sequence[torch.Tensor] | torch.Tensor = 3.0,
+        rescale_min: float = -1.0,
+        rescale_max: float = 1.0,
+        allow_missing_keys: bool = False,
+    ):
+        MapTransform.__init__(self, keys, allow_missing_keys)
+        self.background = background
+        self.pert = pert
+        self.points: list[tuple[int, ...]] = []
+        self.label_key = label_key
+        self.sigma = sigma
+        self.rescale_min = rescale_min
+        self.rescale_max = rescale_max
+
+    def randomize(self, label: NdarrayOrTensor) -> None:
+        self.points = get_extreme_points(label, rand_state=self.R, background=self.background, pert=self.pert)
+
+    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
+        d = dict(data)
+        label = d[self.label_key]
+        if label.shape[0] != 1:
+            raise ValueError("Only supports single channel labels!")
+
+        # Generate extreme points
+        self.randomize(label[0, :])
+
+        d["tumor"] = self.points
+        d["background"] =[]
+        print("points: ", self.points)
+
+        # for key in self.key_iterator(d):
+        #     img = d[key]
+        #     points_image = extreme_points_to_image(
+        #         points=self.points,
+        #         label=label,
+        #         sigma=self.sigma,
+        #         rescale_min=self.rescale_min,
+        #         rescale_max=self.rescale_max,
+        #     )
+        #     points_image, *_ = convert_to_dst_type(points_image, img)  # type: ignore
+        #     d[key] = concatenate([img, points_image], axis=0)
+        return d
+        
+
+
+
+def get_extreme_points(
+    img: NdarrayOrTensor, rand_state: np.random.RandomState | None = None, background: int = 0, pert: float = 0.0
+) -> list[tuple[int, ...]]:
+    """
+    Generate extreme points from an image. These are used to generate initial segmentation
+    for annotation models. An optional perturbation can be passed to simulate user clicks.
+
+    Args:
+        img:
+            Image to generate extreme points from. Expected Shape is ``(spatial_dim1, [, spatial_dim2, ...])``.
+        rand_state: `np.random.RandomState` object used to select random indices.
+        background: Value to be consider as background, defaults to 0.
+        pert: Random perturbation amount to add to the points, defaults to 0.0.
+
+    Returns:
+        A list of extreme points, its length is equal to 2 * spatial dimension of input image.
+        The output format of the coordinates is:
+
+        indices of [1st_spatial_dim_min, 1st_spatial_dim_max, 2nd_spatial_dim_min, ..., Nth_spatial_dim_max]
+
+    Raises:
+        ValueError: When the input image does not have any foreground pixel.
+    """
+    check_non_lazy_pending_ops(img, name="get_extreme_points")
+    if rand_state is None:
+        rand_state = np.random.random.__self__  # type: ignore
+
+    #image is label (0,1), get indices where label is not background
+    indices = where(img != background)
+
+    if np.size(indices[0]) == 0:
+        raise ValueError("get_extreme_points: no foreground object in mask!")
+
+    def _get_point(val, dim):
+        """
+        Select one of the indices within slice containing val.
+
+        Args:
+            val : value for comparison
+            dim : dimension in which to look for value
+        """
+        idx = where(indices[dim] == val)[0]
+
+        idx = idx.cpu() if isinstance(idx, torch.Tensor) else idx
+        idx = rand_state.choice(idx) if rand_state is not None else idx
+        pt = []
+        for j in range(img.ndim):
+            # add +- pert to each dimension
+            val = int(indices[j][idx] + 2.0 * pert * (rand_state.rand() if rand_state is not None else 0.5 - 0.5))
+            val = max(val, 0)
+            val = min(val, img.shape[j] - 1)
+            pt.append(val)
+        return pt
+
+    points = []
+    for i in range(img.ndim):
+        points.append(tuple(_get_point(indices[i].min(), i)))
+        points.append(tuple(_get_point(indices[i].max(), i)))
+    
+ 
+       
+
+    return points
+
 
 class AddEmptySignalChannels(MapTransform):
     """
@@ -232,18 +384,18 @@ class AddGuidanceSignal(MapTransform):
                 if self.disks:
                     signal[0] = (signal[0] > 0.1) * 1.0  # 0.1 with sigma=1 --> radius = 3, otherwise it is a cube
 
-                if self.gdt:
-                    geos = generalised_geodesic3d(image.unsqueeze(0).to(self.device),
-                                                signal[0].unsqueeze(0).unsqueeze(0).to(self.device),
-                                                self.spacing,
-                                                10e10,
-                                                1.0,
-                                                2)
+                # if self.gdt:
+                #     geos = generalised_geodesic3d(image.unsqueeze(0).to(self.device),
+                #                                 signal[0].unsqueeze(0).unsqueeze(0).to(self.device),
+                #                                 self.spacing,
+                #                                 10e10,
+                #                                 1.0,
+                #                                 2)
 
 
 
 
-                    signal[0] = geos[0][0]
+                #     signal[0] = geos[0][0]
 
             if not (torch.min(signal[0]).item() >= 0 and torch.max(signal[0]).item() <= 1.0) and (not self.gdt):
                 raise UserWarning(
