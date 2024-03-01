@@ -161,9 +161,9 @@ class Interaction:
             if self.non_interactive:
                 break
 
-            if self.extreme_points:
+            #if self.extreme_points:
                 # Add extreme points (TODO Franzi)
-                break
+            #    break
 
             if self.stopping_criterion in [
                 StoppingCriterion.MAX_ITER,
