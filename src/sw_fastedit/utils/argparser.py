@@ -90,7 +90,7 @@ def parse_args():
         help="Limit the amount of training/validation samples to a fixed number",
     )
     parser.add_argument(
-        "--dataset", default="AutoPET", choices=["AutoPET", "AutoPET2", "HECKTOR", "MSD_Spleen", "AutoPET2_Challenge"]
+        "--dataset", default="AutoPET", choices=["AutoPET", "AutoPET2", "HECKTOR", "MSD_Spleen", "AutoPET2_Challenge", "AMOS"]
     )
     parser.add_argument(
         "--use_test_data_for_validation", default=False, action="store_true", help="Use the test data instead of the split of the training data for validation. May not work for all models but is tested for AutoPET"
@@ -149,6 +149,11 @@ def parse_args():
     )
     parser.add_argument("--loss_dont_include_background", default=False, action="store_true")
     parser.add_argument("--loss_no_squared_pred", default=False, action="store_true")
+
+    #LOSS extreme points
+    parser.add_argument("--loss_ep", default="mean_squared_error")
+    parser.add_argument("--optimizer_ep", default="Adam")
+    parser.add_argument("-lr_ep", "learning_rate_ep", type=float, default=0.0003)
 
     parser.add_argument("--resume_from", type=str, default="None")
     # Use this parameter to change the scheduler..
@@ -221,7 +226,7 @@ def setup_environment_and_adapt_args(args):
 
     device = torch.device(f"cuda:{args.gpu}")
 
-    args.labels = {"tumor": 1, "background": 0}
+    args.labels = {"liver": 1, "background": 0}
 
     if not args.dont_check_output_dir and os.path.isdir(args.output_dir):
         raise UserWarning(

@@ -45,6 +45,7 @@ from monai.handlers import (
 )
 from monai.inferers import SimpleInferer, SlidingWindowInferer
 from monai.losses import DiceCELoss, DiceLoss
+from monai.metrics import MSEMetric
 from monai.metrics import SurfaceDiceMetric
 from monai.networks.nets.dynunet import DynUNet
 from monai.optimizers.novograd import Novograd
@@ -120,6 +121,17 @@ def get_loss_function(loss_args, loss_kwargs=None):
         loss_function = DiceCELoss(to_onehot_y=True, softmax=True, **loss_kwargs)
     elif loss_args == "DiceLoss":
         loss_function = DiceLoss(to_onehot_y=True, softmax=True, **loss_kwargs)
+    return loss_function
+
+def get_loss_function_extreme_points(loss_ep_args, loss_kwargs=None):
+    """
+    Get loss function for the extreme points (default: 6)
+
+    """
+    if loss_kwargs is None:
+        loss_kwargs = {}
+    if loss_ep_args == "mean_squared_error":
+        loss_function = MSEMetric(to_onehot_y=True, softmax=True, **loss_kwargs)
     return loss_function
 
 

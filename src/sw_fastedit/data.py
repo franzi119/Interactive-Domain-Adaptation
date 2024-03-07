@@ -68,7 +68,7 @@ from sw_fastedit.utils.helper import convert_mha_to_nii, convert_nii_to_mha
 logger = logging.getLogger("sw_fastedit")
 
 
-PET_dataset_names = ["AutoPET", "AutoPET2", "AutoPET_merged", "HECKTOR", "AutoPET2_Challenge"]
+PET_dataset_names = ["AutoPET", "AutoPET2", "AutoPET_merged", "HECKTOR", "AutoPET2_Challenge", "AMOS"]
 
 
 def get_pre_transforms(labels: Dict, device, args, input_keys=("image", "label")):
@@ -109,8 +109,10 @@ def get_spacing(args):
     AUTOPET_SPACING = (2.03642011, 2.03642011, 3.0)
     MSD_SPLEEN_SPACING = (2 * 0.79296899, 2 * 0.79296899, 5.0)
     HECKTOR_SPACING = (2.03642011, 2.03642011, 3.0)
-    
-    # TODO Franzi Define Prostate Spacings
+    #2 options from the AMOS22 challenge paper Fabian Isensee
+    AMOS_SPACING = (2.0, 0.69, 0.69)
+    #AMOS_SPACING = (1.5, 1.0, 1.0)
+    # TODO Franzi Define AMOS Spacings
 
     if args.dataset == "AutoPET" or args.dataset == "AutoPET2" or args.dataset == "AutoPET2_Challenge":
         return AUTOPET_SPACING
@@ -118,6 +120,8 @@ def get_spacing(args):
         return HECKTOR_SPACING
     elif args.dataset == "MSD_Spleen":
         return MSD_SPLEEN_SPACING
+    elif args.dataset == "AMOS":
+        return AMOS_SPACING
     else:
         raise UserWarning(f"No valid dataset found: {args.dataset}")
 
@@ -627,6 +631,33 @@ def get_AutoPET_file_list(args) -> List[List, List, List]:
     return train_data, val_data, test_data
 
 
+def get_AMOS_file_list(args) -> List[List, List, List]:
+    """
+    Get file lists for AutoPET dataset.
+
+    Args:
+        args: Command line arguments.
+
+    Returns:
+        Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
+        A tuple containing lists of training, validation, and test data dictionaries.
+        Each dictionary contains the paths to the image and label files.
+    """
+    train_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTr", "*.nii.gz")))
+    train_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTr", "*.nii.gz")))
+
+    test_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTs", "*.nii.gz")))
+    test_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTs", "*.nii.gz")))
+
+    train_data = [
+        {"image": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
+    ]
+    val_data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+    test_data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+
+    return train_data, val_data, test_data
+
+
 def get_filename_without_extensions(nifti_path):
     """
     Extracts the filename without extensions from a given NIfTI file path.
@@ -818,6 +849,9 @@ def get_data(args):
         train_data, val_data, test_data = get_AutoPET2_file_list(args)
     elif args.dataset == "HECKTOR":
         train_data, val_data, test_data = get_HECKTOR_file_list(args)
+    elif args.dataset == "AMOS":
+        train_data, val_data, test_data = get_AMOS_file_list(args)
+
 
     if args.train_on_all_samples:
         train_data += val_data
