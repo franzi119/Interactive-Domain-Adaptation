@@ -20,6 +20,7 @@ import logging
 import os
 import resource
 import sys
+import debugpy
 
 import torch
 
@@ -96,10 +97,19 @@ def run(args):
 
 
 def main():
+
+
+    
+    debugpy.listen(('0.0.0.0', 5678))
+
+    print("Waiting for debugger attach")
+    debugpy.wait_for_client()
     global logger
 
     args = parse_args()
     args, logger = setup_environment_and_adapt_args(args)
+
+
 
     run(args)
 

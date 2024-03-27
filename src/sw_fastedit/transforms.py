@@ -35,7 +35,6 @@ from monai.transforms import (
 
 from collections.abc import Hashable, Mapping, Sequence
 
-#import for AddExtremePointsChanneld
 from monai.config.type_definitions import NdarrayOrTensor
 from monai.transforms.utility.array import AddExtremePointsChannel
 from monai.transforms.utils import extreme_points_to_image, get_extreme_points
@@ -103,8 +102,10 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
         rescale_min: float = -1.0,
         rescale_max: float = 1.0,
         allow_missing_keys: bool = False,
+        label_names = {},
     ):
         MapTransform.__init__(self, keys, allow_missing_keys)
+        self.label_names = label_names 
         self.background = background
         self.pert = pert
         self.points: list[tuple[int, ...]] = []
@@ -112,22 +113,26 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
         self.sigma = sigma
         self.rescale_min = rescale_min
         self.rescale_max = rescale_max
+        
 
     def randomize(self, label: NdarrayOrTensor) -> None:
         self.points = get_extreme_points(label, rand_state=self.R, background=self.background, pert=self.pert)
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
         d = dict(data)
+        #print("d",d["image"].shape)
+
         label = d[self.label_key]
         if label.shape[0] != 1:
             raise ValueError("Only supports single channel labels!")
 
         # Generate extreme points
         self.randomize(label[0, :])
-
-        d["tumor"] = self.points
-        d["background"] =[]
-        print("points: ", self.points)
+        d[list(self.label_names.keys())[0]] = self.points
+        d[list(self.label_names.keys())[1]] = []
+        #d["liver"] = self.points
+        #d["background"] =[]
+        #print("points: ", self.points)
 
         # for key in self.key_iterator(d):
         #     img = d[key]
@@ -140,6 +145,7 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
         #     )
         #     points_image, *_ = convert_to_dst_type(points_image, img)  # type: ignore
         #     d[key] = concatenate([img, points_image], axis=0)
+        #exit()
         return d
         
 
@@ -221,7 +227,8 @@ class AddEmptySignalChannels(MapTransform):
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         # Set up the initial batch data
-        in_channels = 1 + len(data[LABELS_KEY]) 
+
+        in_channels = len(data[LABELS_KEY]) 
         tmp_image = data[CommonKeys.IMAGE][0 : 0 + 1, ...]
         assert len(tmp_image.shape) == 4
         new_shape = list(tmp_image.shape)
@@ -235,7 +242,6 @@ class AddEmptySignalChannels(MapTransform):
             data[CommonKeys.IMAGE].array = inputs
         else:
             data[CommonKeys.IMAGE] = inputs
-
         return data
 
 
@@ -397,7 +403,7 @@ class AddGuidanceSignal(MapTransform):
 
                 #     signal[0] = geos[0][0]
 
-            if not (torch.min(signal[0]).item() >= 0 and torch.max(signal[0]).item() <= 1.0) and (not self.gdt):
+            if not (torch.min(signal[0]).item() >= 0 and torch.max(signal[0]).item() <= 1.0):
                 raise UserWarning(
                     "[WARNING] Bad signal values",
                     torch.min(signal[0]),
@@ -423,39 +429,41 @@ class AddGuidanceSignal(MapTransform):
 
     @timeit
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
+
         for key in self.key_iterator(data):
             if key == "image":
-                image = data[key]
+                
+                image = data[key].to(torch.device("cuda:0"))
                 assert image.is_cuda 
                 tmp_image = image[0 : 0 + self.number_intensity_ch, ...]
 
+                label_key = list(data[LABELS_KEY].keys())[0]
+                label_guidance = get_guidance_tensor_for_key_label(data, label_key, self.device)
+                logger.debug(f"Converting guidance for label {label_key}:{label_guidance} into a guidance signal..")
 
-                for _, (label_key, _) in enumerate(data[LABELS_KEY].items()):
-                    label_guidance = get_guidance_tensor_for_key_label(data, label_key, self.device)
-                    logger.debug(f"Converting guidance for label {label_key}:{label_guidance} into a guidance signal..")
+                if label_guidance is not None and label_guidance.numel():
+                    signal = self._get_corrective_signal(
+                        image,
+                        label_guidance.to(device=self.device),
+                        key_label=label_key,
+                    )
+                    
+                    assert torch.sum(signal) > 0
+                else:
+                    signal = self._get_corrective_signal(
+                        image,
+                        torch.Tensor([]).to(device=self.device),
+                        key_label=label_key,
+                    )
 
-                    if label_guidance is not None and label_guidance.numel():
-                        signal = self._get_corrective_signal(
-                            image,
-                            label_guidance.to(device=self.device),
-                            key_label=label_key,
-                        )
-                        if not self.gdt:
-                            assert torch.sum(signal) > 0
-                    else:
-                        signal = self._get_corrective_signal(
-                            image,
-                            torch.Tensor([]).to(device=self.device),
-                            key_label=label_key,
-                        )
-
-                    assert signal.is_cuda 
-                    assert tmp_image.is_cuda 
-                    tmp_image = torch.cat([tmp_image, signal], dim=0)
-                    if isinstance(data[key], MetaTensor):
-                        data[key].array = tmp_image
-                    else:
-                        data[key] = tmp_image
+                assert signal.is_cuda 
+                assert tmp_image.is_cuda 
+                tmp_image = torch.cat([tmp_image, signal], dim=0)
+                if isinstance(data[key], MetaTensor):
+                    data[key].array = tmp_image
+                else:
+                    data[key] = tmp_image
+                #print('Addguidancesignal', data['image'].shape)
                 return data
             else:
                 raise UserWarning("This transform only applies to image key")

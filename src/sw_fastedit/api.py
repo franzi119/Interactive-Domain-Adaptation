@@ -164,7 +164,7 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
     """
 
 
-    in_channels = 1 if non_interactive else 1 + len(labels)
+    in_channels = 2 #1 for liver and 1 for extreme points (generated or interactive)
     out_channels = len(labels)
 
     if network_str == "dynunet":
@@ -352,9 +352,9 @@ def get_val_handlers(sw_roi_size: List, inferer: str, gpu_size: str, *,garbage_c
     TODO Franzi:
         # Set the iterations = 1 and it is done
     """
-    every_x_iterations = 2
+    every_x_iterations = 1 
     if non_interactive:
-        every_x_iterations *= 10
+        every_x_iterations = 1
 
     if sw_roi_size[0] < 128:
         val_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
@@ -416,9 +416,9 @@ def get_train_handlers(
     TODO Franzi:
         # Set the iterations = 1 and it is done
     """
-    every_x_iterations = 4
+    every_x_iterations = 1 
     if non_interactive:
-        every_x_iterations *= 10
+        every_x_iterations = 1
 
     if sw_roi_size[0] <= 128:
         train_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED

@@ -90,7 +90,7 @@ def parse_args():
         help="Limit the amount of training/validation samples to a fixed number",
     )
     parser.add_argument(
-        "--dataset", default="AutoPET", choices=["AutoPET", "AutoPET2", "HECKTOR", "MSD_Spleen", "AutoPET2_Challenge", "AMOS"]
+        "--dataset", default="AMOS", choices=["AutoPET", "AutoPET2", "HECKTOR", "MSD_Spleen", "AutoPET2_Challenge", "AMOS"]
     )
     parser.add_argument(
         "--use_test_data_for_validation", default=False, action="store_true", help="Use the test data instead of the split of the training data for validation. May not work for all models but is tested for AutoPET"
@@ -107,6 +107,7 @@ def parse_args():
     parser.add_argument("--no_data", default=False, action="store_true")
     parser.add_argument("--dont_check_output_dir", default=False, action="store_true")
     parser.add_argument("--debug", default=False, action="store_true")
+    parser.add_argument("--debugpy", default=False, action="store_true")
 
     # Model
     parser.add_argument(
@@ -118,15 +119,16 @@ def parse_args():
     parser.add_argument(
         "-in",
         "--inferer",
-        default="SlidingWindowInferer",
+        default="SimpleInferer",
         choices=["SimpleInferer", "SlidingWindowInferer"],
     )
     parser.add_argument("--sw_roi_size", default="(128,128,128)", action="store")
     # crop_size multiples of sliding window size (128,128,128) with overlap 0.25 (default): 128, 224, 320, 416, 512
     parser.add_argument("--train_crop_size", default="(224,224,224)", action="store")
+    #parser.add_argument("--train_crop_size", default="None", action="store")
     parser.add_argument("--val_crop_size", default="None", action="store")
     # 1 on 24 Gb, 8 on 50 Gb,
-    parser.add_argument("--train_sw_batch_size", type=int, default=8)
+    parser.add_argument("--train_sw_batch_size", type=int, default=1)
     parser.add_argument("--val_sw_batch_size", type=int, default=1)
     parser.add_argument("--train_sw_overlap", type=float, default=0.25)
     # Reduce this if you run into OOMs
@@ -139,7 +141,7 @@ def parse_args():
     parser.add_argument("-e", "--epochs", type=int, default=100)
     # LOSS
     # If learning rate is set to 0.001, the DiceCELoss will produce Nans very quickly
-    parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001)
+    parser.add_argument("-lr", "--learning_rate", type=float, default=0.001)
     parser.add_argument("--optimizer", default="Adam", choices=["Adam", "Novograd"])
     parser.add_argument("--loss", default="DiceCELoss", choices=["DiceCELoss", "DiceLoss"])
     parser.add_argument(
@@ -153,7 +155,7 @@ def parse_args():
     #LOSS extreme points
     parser.add_argument("--loss_ep", default="mean_squared_error")
     parser.add_argument("--optimizer_ep", default="Adam")
-    parser.add_argument("-lr_ep", "learning_rate_ep", type=float, default=0.0003)
+    parser.add_argument("-lr_ep", "--learning_rate_ep", type=float, default=0.0003)
 
     parser.add_argument("--resume_from", type=str, default="None")
     # Use this parameter to change the scheduler..
@@ -173,11 +175,12 @@ def parse_args():
     # Interactions
     parser.add_argument(
         "--non_interactive",
+        default=False,
         action="store_true",
         help="Default training of neural network. Don't add any guidance channels, do normal backprop only.",
     )
-    parser.add_argument("-it", "--max_train_interactions", type=int, default=10)
-    parser.add_argument("-iv", "--max_val_interactions", type=int, default=10)
+    parser.add_argument("-it", "--max_train_interactions", type=int, default=1)
+    parser.add_argument("-iv", "--max_val_interactions", type=int, default=1)
     parser.add_argument("-dpt", "--deepgrow_probability_train", type=float, default=1.0)
     parser.add_argument("-dpv", "--deepgrow_probability_val", type=float, default=1.0)
 
@@ -225,8 +228,8 @@ def setup_environment_and_adapt_args(args):
     args.git = get_git_information()
 
     device = torch.device(f"cuda:{args.gpu}")
-
-    args.labels = {"liver": 1, "background": 0}
+    
+    args.labels = {"liver": 6, "background": 0}
 
     if not args.dont_check_output_dir and os.path.isdir(args.output_dir):
         raise UserWarning(
@@ -340,11 +343,11 @@ def setup_environment_and_adapt_args(args):
         args.train_crop_size = eval(args.train_crop_size)
         assert len(args.train_crop_size) == 3
 
-    # verify both have a valid size (for Unet with seven layers)
-    if args.inferer == "SimpleInferer":
-        for size in args.train_crop_size:
-            assert (size % 32) == 0
-        for size in args.val_crop_size:
-            assert (size % 32) == 0
+    #verify both have a valid size (for Unet with seven layers)
+    #if args.inferer == "SimpleInferer":
+        #for size in args.train_crop_size:
+        #    assert (size % 32) == 0
+        #for size in args.val_crop_size:
+         #   assert (size % 32) == 0
 
     return args, logger

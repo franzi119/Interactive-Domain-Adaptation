@@ -110,8 +110,9 @@ def get_spacing(args):
     MSD_SPLEEN_SPACING = (2 * 0.79296899, 2 * 0.79296899, 5.0)
     HECKTOR_SPACING = (2.03642011, 2.03642011, 3.0)
     #2 options from the AMOS22 challenge paper Fabian Isensee
-    AMOS_SPACING = (2.0, 0.69, 0.69)
-    #AMOS_SPACING = (1.5, 1.0, 1.0)
+    #AMOS_SPACING = (1.03642011, 2.03642011, 1.0)
+    AMOS_SPACING = (2*2.0, 2*0.69, 2*0.69) # error: no foreground object in mask amos_0015
+    #AMOS_SPACING = (2*1.5, 2*1.0, 2*1.0) #error: no foreground object in mask amos_0010
     # TODO Franzi Define AMOS Spacings
 
     if args.dataset == "AutoPET" or args.dataset == "AutoPET2" or args.dataset == "AutoPET2_Challenge":
@@ -125,7 +126,7 @@ def get_spacing(args):
     else:
         raise UserWarning(f"No valid dataset found: {args.dataset}")
 
-#TODO: Franzi change transforms for AMOS dataset
+#TODO: Franzi change transforms for AMOS dataset here
 def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("image", "label")):
     """
     Get a list of pre-transforms for training data.
@@ -177,34 +178,39 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             if args.crop_foreground
             else Identityd(keys=input_keys, allow_missing_keys=True),
             # 0.05 and 99.95 percentiles of the spleen HUs, either manually or automatically
-            ScaleIntensityRanged(keys="image", a_min=0, a_max=43, b_min=0.0, b_max=1.0, clip=True)
+            ScaleIntensityRanged(keys="image", a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True)
             if args.scale_intensity_ranged
             else ScaleIntensityRangePercentilesd(
                 keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             ),
-            # Random Transforms
+            #Random Transform (for sliding window)
             # allow_smaller=True not necessary for the default AUTOPET split of (224,)**3, just there for safety so that training does not get interrupted
-            RandCropByPosNegLabeld(
-                keys=input_keys,
-                label_key="label",
-                spatial_size=args.train_crop_size,
-                pos=args.positive_crop_rate,
-                neg=1 - args.positive_crop_rate,
-                allow_smaller=True,
-            ) # TODO Franzi - this is only for the sliding window
-            if args.train_crop_size is not None
-            else Identityd(keys=input_keys, allow_missing_keys=True),
+            # RandCropByPosNegLabeld(
+            #     keys=input_keys,
+            #     label_key="label",
+            #     spatial_size=args.train_crop_size,
+            #     pos=args.positive_crop_rate,
+            #     neg=1 - args.positive_crop_rate,
+            #     allow_smaller=True,
+            # ),
+            #if args.train_crop_size is not None
+            #else Identityd(keys=input_keys, allow_missing_keys=True),
             DivisiblePadd(keys=input_keys, k=32, value=0)
             if args.inferer == "SimpleInferer"
             else Identityd(keys=input_keys, allow_missing_keys=True),  # UNet needs this, 32 for 6 layers, for 7 at least 64
+            
+            #Data augmentation
             RandFlipd(keys=input_keys, spatial_axis=[0], prob=0.10),
             RandFlipd(keys=input_keys, spatial_axis=[1], prob=0.10),
             RandFlipd(keys=input_keys, spatial_axis=[2], prob=0.10),
             RandRotate90d(keys=input_keys, prob=0.10, max_k=3),
+            #For debugging, replacing nan
             SignalFillEmptyd(input_keys),
             AddEmptySignalChannels(keys=input_keys, device=cpu_device)
             if not args.non_interactive
-            else Identityd(keys=input_keys, allow_missing_keys=True),
+            else Identityd(keys=input_keys, allow_missing_keys=True),     
+           
+
             # Move to GPU
             # WARNING: Activating the line below leads to minimal gains in performance
             # However you are buying these gains with a lot of weird errors and problems
@@ -220,7 +226,7 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
 
     return t
 
-#TODO: Franzi for AMOS dataset
+#TODO: Franzi for AMOS dataset, SAME AS TRAIN BUT WITHOUT AUGMENTATION
 def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("image", "label")):
     """
     Get a list of pre-transforms for validation data.
@@ -277,7 +283,7 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             if args.val_crop_size is not None
             else Identityd(keys=input_keys, allow_missing_keys=True),
             # 0.05 and 99.95 percentiles of the spleen HUs, either manually or automatically
-            ScaleIntensityRanged(keys="image", a_min=0, a_max=43, b_min=0.0, b_max=1.0, clip=True)
+            ScaleIntensityRanged(keys="image", a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True)
             if args.scale_intensity_ranged
             else ScaleIntensityRangePercentilesd(
                 keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
@@ -325,19 +331,20 @@ def get_click_transforms(device, args):
     """
     spacing = get_spacing(args)
     cpu_device = torch.device("cpu")
-
+    
     logger.info(f"{device=}")
-    print("label: ")
     t = [
         Activationsd(keys="pred", softmax=True),
         AsDiscreted(keys="pred", argmax=True),
-       
+       #ADDS COORDINATES
         AddExtremePointsChanneld(
+            label_names = args.labels,
             keys = "image", 
             label_key = "label",
             sigma = args.sigma,
 
-            ),
+             ),
+        #TRANSFORMES COORDINATES INTO SPHERES
          #Overwrites the image entry
         AddGuidanceSignal(
             keys="image",

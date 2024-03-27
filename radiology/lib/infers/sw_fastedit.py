@@ -98,7 +98,7 @@ class SWFastEdit(BasicInferTask):
         labels=None,
         label_names=None,
         dimension=3,
-        target_spacing=(2.03642011, 2.03642011, 3.0),
+        target_spacing=(2*1.5, 2*1.0, 2*1.0),
         description="",
         model_state_dict="net",
         **kwargs,
@@ -151,9 +151,6 @@ class SWFastEdit(BasicInferTask):
         data['label_names'] = self.label_names
 
 
-
-
-
         # Make sure the click keys already exist
         for label in self.label_names:
             if not label in data:
@@ -167,6 +164,7 @@ class SWFastEdit(BasicInferTask):
 
         cpu_device = torch.device("cpu")
         device = data.get("device") if data else None
+        #print(device)
         loglevel = logging.DEBUG
         input_keys=("image")
         
@@ -178,7 +176,7 @@ class SWFastEdit(BasicInferTask):
             # ScaleIntensityRangePercentilesd(
             #     keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             # ),
-            ScaleIntensityRanged(keys="image", a_min=0, a_max=43, b_min=0.0, b_max=1.0, clip=True),
+            ScaleIntensityRanged(keys="image", a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True),
             SignalFillEmptyd(keys=input_keys),
         ]
         t.extend(t_val_1)
@@ -192,37 +190,6 @@ class SWFastEdit(BasicInferTask):
                 device=device,
             ),
             Orientationd(keys=input_keys, axcodes="RAS"),
-            SplitDimd(keys=("image",)),
-
-            CopyItemsd(keys=("image_1", "image_2", "image_0"), times=1, names=("tumor_for_save", "background_for_save", "image_for_save",)),
-
-            SaveImaged(
-                keys=("image_0",),
-                writer="ITKWriter",
-                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
-                output_postfix="image_monailabel",
-                output_dtype=np.float32,
-                separate_folder=True,
-                resample=False,
-            ),
-            SaveImaged(
-                keys=("image_1",),
-                writer="ITKWriter",
-                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
-                output_postfix="tumor_monailabel",
-                output_dtype=np.uint8,
-                separate_folder=True,
-                resample=False,
-            ),
-            SaveImaged(
-                keys=("image_2",),
-                writer="ITKWriter",
-                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
-                output_postfix="background_monailabel",
-                output_dtype=np.uint8,
-                separate_folder=True,
-                resample=False,
-            ),
             Spacingd(keys=input_keys, pixdim=self.target_spacing),
             CenterSpatialCropd(keys=input_keys, roi_size=self.val_crop_size)
             if self.val_crop_size is not None
@@ -258,16 +225,26 @@ class SWFastEdit(BasicInferTask):
             AsDiscreted(keys="pred", argmax=True),
             SqueezeDimd(keys="pred", dim=0),
             EnsureTyped(keys="pred", device="cpu" if data else None, dtype=torch.uint8),
-            SaveImaged(
-                keys=("pred",),
-                writer="ITKWriter",
-                output_dir=os.path.join("/home/zmarinov/repos/int_med_seg_hub/src/outputs/monailabel_theresa/", "predictions"),
-                output_postfix="pred_monailabel",
-                output_dtype=np.uint8,
-                separate_folder=True,
-                resample=False,
-            )
         ]
+
+    # def post_transforms(self, data=None) -> Sequence[Callable]:
+    #     device = data.get("device") if data else None
+    #     return [
+    #         EnsureTyped(keys="pred", device=device),
+    #         Activationsd(keys="pred", softmax=True),
+    #         AsDiscreted(keys="pred", argmax=True),
+    #         SqueezeDimd(keys="pred", dim=0),
+    #         EnsureTyped(keys="pred", device="cpu" if data else None, dtype=torch.uint8),
+    #         SaveImaged(
+    #             keys=("pred",),
+    #             writer="ITKWriter",
+    #             output_dir=os.path.join("Documents/int_med_seg_hub/test_output_monai", "predictions"),
+    #             output_postfix="pred_monailabel",
+    #             output_dtype=np.uint8,
+    #             separate_folder=True,
+    #             resample=False,
+    #         )
+    #     ]
 
 def post_callback(data): 
     """

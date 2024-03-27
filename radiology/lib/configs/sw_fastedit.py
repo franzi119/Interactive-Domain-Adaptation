@@ -39,7 +39,7 @@ class SWFastEditConfig(TaskConfig):
 
         # Labels
         self.labels = [
-            "tumor",
+            "liver",
             "background",
         ]
 
@@ -77,8 +77,8 @@ class SWFastEditConfig(TaskConfig):
 
 
 
-        AUTOPET_SPACING = (2.03642011, 2.03642011, 3.0)
-        self.target_spacing = AUTOPET_SPACING # AutoPET default
+        AMOS_SPACING = (2*1.5, 2*1.0, 2*1.0)
+        self.target_spacing = AMOS_SPACING # AutoPET default
         # Setting ROI size
         # self.sw_roi_size = (128, 128, 128)
 

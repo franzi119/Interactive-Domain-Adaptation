@@ -22,7 +22,7 @@ def parse_args():
 def read_clicks(input_dir):
     with open(input_dir, 'r') as f:
         json_data = json.load(f)
-    tumor = json_data['tumor']
+    tumor = json_data['liver']
     background = json_data['background']
     return tumor, background
 

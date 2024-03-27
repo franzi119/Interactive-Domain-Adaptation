@@ -127,7 +127,7 @@ def parse_args():
 def main():
     args = parse_args()
     args.num_workers = 1
-    args.labels = {"spleen": 1, "background": 0}
+    args.labels = {"liver": 6, "background": 0}
 
     if not os.path.exists(args.output_dir):
         pathlib.Path(args.output_dir).mkdir(parents=True)

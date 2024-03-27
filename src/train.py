@@ -15,11 +15,11 @@
 # matthiashadlich@posteo.de #
 
 from __future__ import annotations
-
 import logging
 import os
 import sys
 import time
+import debugpy
 
 import pandas as pd
 import torch
@@ -132,6 +132,12 @@ def main():
 
     args = parse_args()
     args, logger = setup_environment_and_adapt_args(args)
+
+    if args.debugpy:
+        debugpy.listen(('0.0.0.0', 5678))
+
+        print("Waiting for debugger attach")
+        debugpy.wait_for_client()
 
     run(args)
 

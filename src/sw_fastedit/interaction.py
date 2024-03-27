@@ -113,10 +113,11 @@ class Interaction:
 
         self.non_interactive = non_interactive
         self.output_dir = output_dir
-    """
-    TODO Franzi:
-        # self.extreme_points = True
-    """
+        self.extreme_points = True
+    
+    #TODO Franzi:
+        #self.extreme_points = True
+    
     @timeit
     def __call__(
         self,
@@ -125,7 +126,6 @@ class Interaction:
     ):
         if batchdata is None:
             raise ValueError("Must provide batch data for current iteration.")
-
         if not self.train:
             # Evaluation does not print epoch / iteration information
             logger.info(
@@ -170,11 +170,12 @@ class Interaction:
 
             if self.non_interactive:
                 break
-            '''
-            if self.extreme_points:
+            
+            #if self.extreme_points:
+                #batchdata
                 # Add extreme points (TODO Franzi)
-                break
-            '''
+                #break
+            
             if self.stopping_criterion in [
                 StoppingCriterion.MAX_ITER,
                 StoppingCriterion.MAX_ITER_AND_PROBABILITY,
@@ -183,6 +184,7 @@ class Interaction:
                 StoppingCriterion.DEEPGROW_PROBABILITY,
             ]:
                 # Abort if run for max_interactions
+                #print('interacton', batchdata['image'].shape)
                 if iteration > self.max_interactions - 1:
                     logger.info("MAX_ITER stop")
                     if 'gdt' not in self.output_dir:
@@ -231,17 +233,20 @@ class Interaction:
                     predictions = engine.inferer(inputs, engine.network)
             
             batchdata[CommonKeys.PRED] = predictions
+            logger.info('commonkeyspred_shape %s', str(batchdata[CommonKeys.PRED].shape))
+            logger.info('commonkeyslabel_shape %s', str(batchdata[CommonKeys.PRED].shape))
+            #last_dice_loss = self.dice_loss_function(input = torch.argmax(batchdata[CommonKeys.PRED], dim=1, keepdims=True), target = batchdata[CommonKeys.LABEL]).item()
+            last_dice_loss = self.dice_loss_function(input = batchdata[CommonKeys.PRED], target = batchdata[CommonKeys.LABEL]).item()
+            logger.info("commonkeyspred: %s",str(batchdata[CommonKeys.PRED][0][1][0]))
+            #logger.info("commonkeyspred: %s",str(torch.argmax(batchdata[CommonKeys.PRED][0][1][0])))
 
-            last_dice_loss = self.dice_loss_function(batchdata[CommonKeys.PRED], batchdata[CommonKeys.LABEL]).item()
+            
             last_dice_metric = self.dice_metric(y_pred=torch.argmax(batchdata[CommonKeys.PRED], dim=1, keepdims=True), y=batchdata[CommonKeys.LABEL]).item()
             dice_scores.append(last_dice_metric)
-            
-
-
-
             logger.info(
                 f"It: {iteration} {self.dice_loss_function.__class__.__name__}: {last_dice_loss:.4f} {self.dice_metric.__class__.__name__}: {last_dice_metric:.4f} Epoch: {engine.state.epoch}"
             )
+            
 
             if self.save_nifti:
                 tmp_batchdata = {
@@ -258,6 +263,7 @@ class Interaction:
 
             # decollate/collate batchdata to execute click transforms
             batchdata_list = decollate_batch(batchdata)
+
             for i in range(len(batchdata_list)):
                 batchdata_list[i][self.click_probability_key] = self.deepgrow_probability
                 batchdata_list[i][self.click_generation_strategy_key] = self.click_generation_strategy.value
@@ -266,7 +272,7 @@ class Interaction:
                 logger.debug(f"Click transform took: {time.time() - start:.2} seconds")
 
             batchdata = list_data_collate(batchdata_list)
-
+    
             engine.fire_event(IterationEvents.INNER_ITERATION_COMPLETED)
 
             iteration += 1
