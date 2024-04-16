@@ -120,7 +120,7 @@ def parse_args():
         "-in",
         "--inferer",
         default="SimpleInferer",
-        choices=["SimpleInferer", "SlidingWindowInferer"],
+        choices=["SimpleInferer"],
     )
     parser.add_argument("--sw_roi_size", default="(128,128,128)", action="store")
     # crop_size multiples of sliding window size (128,128,128) with overlap 0.25 (default): 128, 224, 320, 416, 512
@@ -141,9 +141,9 @@ def parse_args():
     parser.add_argument("-e", "--epochs", type=int, default=100)
     # LOSS
     # If learning rate is set to 0.001, the DiceCELoss will produce Nans very quickly
-    parser.add_argument("-lr", "--learning_rate", type=float, default=0.001)
+    parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001)
     parser.add_argument("--optimizer", default="Adam", choices=["Adam", "Novograd"])
-    parser.add_argument("--loss", default="DiceCELoss", choices=["DiceCELoss", "DiceLoss"])
+    parser.add_argument("--loss", default="DiceCEL2Loss", choices=["DiceCEL2Loss"])
     parser.add_argument(
         "--scheduler",
         default="CosineAnnealingLR",
@@ -175,7 +175,7 @@ def parse_args():
     # Interactions
     parser.add_argument(
         "--non_interactive",
-        default=False,
+        default=True,
         action="store_true",
         help="Default training of neural network. Don't add any guidance channels, do normal backprop only.",
     )

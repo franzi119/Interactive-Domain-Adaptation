@@ -38,7 +38,7 @@ class SWFastEditConfig(TaskConfig):
 
         # Labels
         self.labels = [
-            "tumor",
+            "liver",
             "background",
         ]
         

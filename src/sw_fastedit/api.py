@@ -24,6 +24,7 @@ from functools import reduce
 from pickle import dump
 from typing import Iterable, List
 import sys
+from itertools import chain
 
 import cupy as cp
 import numpy as np
@@ -31,7 +32,8 @@ import torch
 from ignite.engine import Events
 from ignite.handlers import TerminateOnNan
 from monai.data import set_track_meta
-from monai.engines import EnsembleEvaluator, SupervisedEvaluator, SupervisedTrainer
+from sw_fastedit.trainer import SupervisedTrainer
+from monai.engines import EnsembleEvaluator, SupervisedEvaluator
 from monai.handlers import (
     CheckpointLoader,
     CheckpointSaver,
@@ -45,6 +47,7 @@ from monai.handlers import (
 )
 from monai.inferers import SimpleInferer, SlidingWindowInferer
 from monai.losses import DiceCELoss, DiceLoss
+from sw_fastedit. dice_ce_l2 import DiceCeL2Loss
 from monai.metrics import MSEMetric
 from monai.metrics import SurfaceDiceMetric
 from monai.networks.nets.dynunet import DynUNet
@@ -53,7 +56,7 @@ from monai.transforms import Compose
 from monai.utils import set_determinism
 
 from sw_fastedit.data import (
-    get_click_transforms,
+    #get_click_transforms,
     get_post_transforms,
     get_pre_transforms_train_as_list,
     get_pre_transforms_val_as_list,
@@ -84,10 +87,11 @@ def get_optimizer(optimizer: str, lr: float, network):
         # Get an Adam optimizer with a learning rate of 0.001 for a neural network
         optimizer = get_optimizer("Adam", 0.001, my_neural_network)
     """
+    all_params = chain(network[0].parameters(), network[1].parameters())
     if optimizer == "Novograd":
-        optimizer = Novograd(network.parameters(), lr)
+        optimizer = Novograd(all_params, lr)
     elif optimizer == "Adam":
-        optimizer = torch.optim.Adam(network.parameters(), lr)
+        optimizer = torch.optim.Adam(all_params, lr)
     return optimizer
 
 
@@ -117,21 +121,8 @@ def get_loss_function(loss_args, loss_kwargs=None):
     """
     if loss_kwargs is None:
         loss_kwargs = {}
-    if loss_args == "DiceCELoss":
-        loss_function = DiceCELoss(to_onehot_y=True, softmax=True, **loss_kwargs)
-    elif loss_args == "DiceLoss":
-        loss_function = DiceLoss(to_onehot_y=True, softmax=True, **loss_kwargs)
-    return loss_function
-
-def get_loss_function_extreme_points(loss_ep_args, loss_kwargs=None):
-    """
-    Get loss function for the extreme points (default: 6)
-
-    """
-    if loss_kwargs is None:
-        loss_kwargs = {}
-    if loss_ep_args == "mean_squared_error":
-        loss_function = MSEMetric(to_onehot_y=True, softmax=True, **loss_kwargs)
+    if loss_args == "DiceCEL2Loss":
+        loss_function = DiceCeL2Loss(to_onehot_y=True, softmax=True, **loss_kwargs)
     return loss_function
 
 
@@ -166,11 +157,23 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
 
     in_channels = 2 #1 for liver and 1 for extreme points (generated or interactive)
     out_channels = len(labels)
+    network = []
 
     if network_str == "dynunet":
-        network = DynUNet(
+        network.append(DynUNet(
             spatial_dims=3,
-            in_channels=in_channels,
+            in_channels=1, #only extreme points
+            out_channels=1,
+            kernel_size=[3, 3, 3, 3, 3, 3],
+            strides=[1, 2, 2, 2, 2, [2, 2, 1]],
+            upsample_kernel_size=[2, 2, 2, 2, [2, 2, 1]],
+            norm_name="instance",
+            deep_supervision=False,
+            res_block=True,
+        ))
+        network.append(DynUNet(
+            spatial_dims=3,
+            in_channels=2, #extreme point output + image
             out_channels=out_channels,
             kernel_size=[3, 3, 3, 3, 3, 3],
             strides=[1, 2, 2, 2, 2, [2, 2, 1]],
@@ -178,7 +181,8 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
             norm_name="instance",
             deep_supervision=False,
             res_block=True,
-        )
+        ))
+
     elif network_str == "smalldynunet":
         network = DynUNet(
             spatial_dims=3,
@@ -205,25 +209,13 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
         )
 
     logger.info(f"Selected network {network.__class__.__qualname__}")
-    logger.info(f"Number of parameters: {count_parameters(network):,}")
+    logger.info(f"Number of parameters: {count_parameters(network[0])+count_parameters(network[1]):,}")
+
 
     return network
 
 
-def get_inferers(
-    inferer: str,
-    *,
-    sw_roi_size,
-    train_crop_size,
-    val_crop_size,
-    train_sw_batch_size,
-    val_sw_batch_size,
-    train_sw_overlap=0.25,
-    val_sw_overlap=0.25,
-    cache_roi_weight_map: bool = True,
-    device="cpu",
-    sw_cpu_output=False,
-):
+def get_inferers():
     """
     Retrieves training and evaluation inferers based on the specified inference strategy.
 
@@ -243,53 +235,10 @@ def get_inferers(
     Returns:
         Tuple[Inferer, Inferer]: Training and evaluation inferers based on the specified strategy.
     """
-    if inferer == "SimpleInferer":
-        train_inferer = SimpleInferer()
-        eval_inferer = SimpleInferer()
-    elif inferer == "SlidingWindowInferer":
-        # train_batch_size is limited due to this bug: https://github.com/Project-MONAI/MONAI/issues/6628
-        assert train_crop_size is not None
-        train_batch_size = max(
-            1,
-            min(
-                reduce(
-                    lambda x, y: x * y,
-                    [round(train_crop_size[i] / sw_roi_size[i]) for i in range(len(sw_roi_size))],
-                ),
-                train_sw_batch_size,
-            ),
-        )
-        logger.info(f"{train_batch_size=}")
-        average_sample_shape = (300, 300, 400) # AutoPET specific!
-        if val_crop_size is not None:
-            average_sample_shape = val_crop_size
+    
+    train_inferer = SimpleInferer()
+    eval_inferer = SimpleInferer()
 
-        val_batch_size = max(
-            1,
-            min(
-                reduce(
-                    lambda x, y: x * y,
-                    [round(average_sample_shape[i] / sw_roi_size[i]) for i in range(len(sw_roi_size))],
-                ),
-                val_sw_batch_size,
-            ),
-        )
-        logger.info(f"{val_batch_size=}")
-
-        sw_params = {
-            "roi_size": sw_roi_size,
-            "mode": "gaussian",
-            "cache_roi_weight_map": cache_roi_weight_map,
-        }
-
-        if sw_cpu_output:
-            logger.warning("Enabling Sliding Window output on the CPU")
-            logger.warning(
-                "Note that this only works well for validation! For training AMP has to be turned off and it has no real effect"
-            )
-            sw_params.update({"sw_device": device, "device": "cpu"})
-        train_inferer = SlidingWindowInferer(sw_batch_size=train_batch_size, overlap=train_sw_overlap, **sw_params)
-        eval_inferer = SlidingWindowInferer(sw_batch_size=val_batch_size, overlap=val_sw_overlap, **sw_params)
     return train_inferer, eval_inferer
 
 
@@ -420,12 +369,12 @@ def get_train_handlers(
     if non_interactive:
         every_x_iterations = 1
 
-    if sw_roi_size[0] <= 128:
-        train_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
-    else:
-        train_trigger_event = (
-            Events.ITERATION_COMPLETED(every=every_x_iterations*2) if gpu_size == "large" else Events.ITERATION_COMPLETED(every=every_x_iterations)
-        )
+    # if sw_roi_size[0] <= 128:
+    #     train_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
+    # else:
+    #     train_trigger_event = (
+    #         Events.ITERATION_COMPLETED(every=every_x_iterations*2) if gpu_size == "large" else Events.ITERATION_COMPLETED(every=every_x_iterations)
+    #     )
 
     train_handlers = [
         LrScheduleHandler(lr_scheduler=lr_scheduler, print_lr=True),
@@ -440,7 +389,7 @@ def get_train_handlers(
     ]
     if garbage_collector:
         # https://github.com/Project-MONAI/MONAI/issues/3423
-        iteration_gc = GarbageCollector(log_level=10, trigger_event=train_trigger_event)
+        iteration_gc = GarbageCollector(log_level=10, trigger_event='epoch')
         train_handlers.append(iteration_gc)
 
     return train_handlers
@@ -521,7 +470,7 @@ def get_additional_metrics(labels, include_background=False, loss_kwargs=None, s
 
 def get_test_evaluator(
     args,
-    network,
+    networks,
     inferer,
     device,
     val_loader,
@@ -551,7 +500,7 @@ def get_test_evaluator(
     evaluator = SupervisedEvaluator(
         device=device,
         val_data_loader=val_loader,
-        network=network,
+        networks=networks,
         inferer=inferer,
         postprocessing=post_transform,
         amp=args.amp,
@@ -564,7 +513,7 @@ def get_test_evaluator(
     )
 
     save_dict = {
-        "net": network,
+        "net": networks,
     }
 
     if resume_from != "None":
@@ -574,7 +523,7 @@ def get_test_evaluator(
         map_location = device
         checkpoint = torch.load(resume_from)
         logger.info(f"{checkpoint.keys()=}")
-        network.load_state_dict(checkpoint["net"]) 
+        networks.load_state_dict(checkpoint["net"]) 
         handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
         handler(evaluator)
 
@@ -583,16 +532,16 @@ def get_test_evaluator(
 
 def get_supervised_evaluator(
     args,
-    network,
+    networks,
     inferer,
     device,
     val_loader,
     loss_function,
-    click_transforms,
+    #click_transforms,
     post_transform,
     key_val_metric,
     additional_metrics,
-) -> SupervisedEvaluator:
+) -> EnsembleEvaluator:
     """
     Retrieves a supervised evaluator for validation in a MONAI training workflow.
 
@@ -617,13 +566,13 @@ def get_supervised_evaluator(
 
     init(args)
 
-    evaluator = SupervisedEvaluator(
+    evaluator = EnsembleEvaluator(
         device=device,
         val_data_loader=val_loader,
-        network=network,
+        networks=networks,
         iteration_update=Interaction(
             deepgrow_probability=args.deepgrow_probability_val,
-            transforms=click_transforms,
+            #ransforms=click_transforms,
             train=False,
             label_names=args.labels,
             max_interactions=args.max_val_interactions,
@@ -706,7 +655,7 @@ def get_ensemble_evaluator(
 
 def get_trainer(
     args, file_prefix="", ensemble_mode: bool = False, resume_from="None"
-) -> List[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
+) -> List[SupervisedTrainer | None, EnsembleEvaluator | None, List]:
     """
     Retrieves a supervised trainer, evaluator, and related metrics for training in a MONAI deep learning workflow.
 
@@ -732,27 +681,21 @@ def get_trainer(
     else:
         val_loader = get_val_loader(args, pre_transforms_val)
 
-    click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
+    #click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
     post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
 
-    network = get_network(args.network, args.labels, args.non_interactive).to(sw_device)
-    train_inferer, eval_inferer = get_inferers(
-        args.inferer,
-        sw_roi_size=args.sw_roi_size,
-        train_crop_size=args.train_crop_size,
-        val_crop_size=args.val_crop_size,
-        train_sw_batch_size=args.train_sw_batch_size,
-        val_sw_batch_size=args.val_sw_batch_size,
-        train_sw_overlap=args.train_sw_overlap,
-        val_sw_overlap=args.val_sw_overlap,
-    )
+    networks = get_network(args.network, args.labels, args.non_interactive)
+    networks[0] = networks[0].to(sw_device)
+    networks[1] = networks[1].to(sw_device)
+    train_inferer, eval_inferer = get_inferers()
 
     loss_kwargs = {
         "squared_pred": (not args.loss_no_squared_pred),
         "include_background": (not args.loss_dont_include_background),
     }
-    loss_function = get_loss_function(loss_args=args.loss, loss_kwargs=loss_kwargs)
-    optimizer = get_optimizer(args.optimizer, args.learning_rate, network)
+    loss_function= get_loss_function(loss_args=args.loss, loss_kwargs=loss_kwargs)
+    
+    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
     lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
 
     val_key_metric = get_key_metric(str_to_prepend="val_")
@@ -761,15 +704,14 @@ def get_trainer(
         val_additional_metrics = get_additional_metrics(
             args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="val_"
         )
-
     evaluator = get_supervised_evaluator(
         args,
-        network=network,
+        networks=networks,
         inferer=eval_inferer,
         device=device,
         val_loader=val_loader,
         loss_function=loss_function,
-        click_transforms=click_transforms,
+        #click_transforms=click_transforms,
         post_transform=post_transform,
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
@@ -777,6 +719,7 @@ def get_trainer(
 
     pre_transforms_train = Compose(get_pre_transforms_train_as_list(args.labels, device, args))
     train_loader = get_train_loader(args, pre_transforms_train)
+    #print('length dataloader', le(train_loader))
     train_key_metric = get_key_metric(str_to_prepend="train_")
     train_additional_metrics = {}
     if args.additional_metrics:
@@ -794,14 +737,15 @@ def get_trainer(
         args.gpu_size,
         garbage_collector=True,
     )
+
     trainer = SupervisedTrainer(
         device=device,
         max_epochs=args.epochs,
         train_data_loader=train_loader,
-        network=network,
+        networks=networks,
         iteration_update=Interaction(
             deepgrow_probability=args.deepgrow_probability_train,
-            transforms=click_transforms,
+            #transforms=click_transforms,
             train=True,
             label_names=args.labels,
             max_interactions=args.max_train_interactions,
@@ -832,18 +776,18 @@ def get_trainer(
     if not args.eval_only:
             save_dict = {
                 "trainer": trainer,
-                "net": network,
+                "net": networks[0],
                 "opt": optimizer,
                 "lr": lr_scheduler,
             }
     else:
         save_dict = {
-            "net": network,
+            "net": networks[0],
         }
 
     if ensemble_mode:
         save_dict = {
-            "net": network,
+            "net": networks[0],
         }
 
     if not ensemble_mode:

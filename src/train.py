@@ -66,7 +66,7 @@ def run(args):
             trainer.optimizer,
             train_metric_names,
             val_metric_names,
-            network=trainer.network,
+            network=trainer.networks,
             output_dir=args.output_dir,
         )
 
@@ -128,6 +128,7 @@ def run(args):
 
 
 def main():
+
     global logger
 
     args = parse_args()
@@ -138,6 +139,7 @@ def main():
 
         print("Waiting for debugger attach")
         debugpy.wait_for_client()
+
 
     run(args)
 

@@ -57,6 +57,7 @@ from sw_fastedit.helper_transforms import (
 )
 from sw_fastedit.transforms import (
     AddEmptySignalChannels,
+    AddEmptySignalChannelsLabel,
     AddExtremePointsChanneld,
     AddGuidanceSignal,
     NormalizeLabelsInDatasetd,
@@ -111,8 +112,8 @@ def get_spacing(args):
     HECKTOR_SPACING = (2.03642011, 2.03642011, 3.0)
     #2 options from the AMOS22 challenge paper Fabian Isensee
     #AMOS_SPACING = (1.03642011, 2.03642011, 1.0)
-    AMOS_SPACING = (2*2.0, 2*0.69, 2*0.69) # error: no foreground object in mask amos_0015
-    #AMOS_SPACING = (2*1.5, 2*1.0, 2*1.0) #error: no foreground object in mask amos_0010
+    AMOS_SPACING = (2*0.69, 2*0.69, 2*2.0)
+    #AMOS_SPACING = (2*1.5, 2*1.0, 2*1.0) 
     # TODO Franzi Define AMOS Spacings
 
     if args.dataset == "AutoPET" or args.dataset == "AutoPET2" or args.dataset == "AutoPET2_Challenge":
@@ -183,18 +184,6 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             else ScaleIntensityRangePercentilesd(
                 keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             ),
-            #Random Transform (for sliding window)
-            # allow_smaller=True not necessary for the default AUTOPET split of (224,)**3, just there for safety so that training does not get interrupted
-            # RandCropByPosNegLabeld(
-            #     keys=input_keys,
-            #     label_key="label",
-            #     spatial_size=args.train_crop_size,
-            #     pos=args.positive_crop_rate,
-            #     neg=1 - args.positive_crop_rate,
-            #     allow_smaller=True,
-            # ),
-            #if args.train_crop_size is not None
-            #else Identityd(keys=input_keys, allow_missing_keys=True),
             DivisiblePadd(keys=input_keys, k=32, value=0)
             if args.inferer == "SimpleInferer"
             else Identityd(keys=input_keys, allow_missing_keys=True),  # UNet needs this, 32 for 6 layers, for 7 at least 64
@@ -206,10 +195,10 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             RandRotate90d(keys=input_keys, prob=0.10, max_k=3),
             #For debugging, replacing nan
             SignalFillEmptyd(input_keys),
-            AddEmptySignalChannels(keys=input_keys, device=cpu_device)
-            if not args.non_interactive
-            else Identityd(keys=input_keys, allow_missing_keys=True),     
-           
+            AddEmptySignalChannelsLabel(keys=input_keys, device=cpu_device), 
+            #add ground truth extreme points to label
+            AddExtremePointsChanneld(label_names = args.labels,keys = "label", label_key = "label",sigma = args.sigma,),
+         
 
             # Move to GPU
             # WARNING: Activating the line below leads to minimal gains in performance
@@ -291,9 +280,10 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             DivisiblePadd(keys=input_keys, k=32, value=0)
             if args.inferer == "SimpleInferer"
             else Identityd(keys=input_keys, allow_missing_keys=True),
-            AddEmptySignalChannels(keys=input_keys, device=cpu_device)
-            if not args.non_interactive
-            else Identityd(keys=input_keys, allow_missing_keys=True),
+            AddEmptySignalChannelsLabel(keys=input_keys, device=cpu_device),
+            #add ground truth extreme points to label
+            AddExtremePointsChanneld(label_names = args.labels,keys = "label", label_key = "label",sigma = args.sigma,),
+    
         ]
         
 
@@ -318,7 +308,7 @@ def get_device(data):
     return f"device - {data.device}"
 
 
-def get_click_transforms(device, args):
+#def get_click_transforms(device, args):
     """
     Get the transforms used for generating clicks during the interaction process.
 
@@ -339,7 +329,7 @@ def get_click_transforms(device, args):
        #ADDS COORDINATES
         AddExtremePointsChanneld(
             label_names = args.labels,
-            keys = "image", 
+            keys = "label", 
             label_key = "label",
             sigma = args.sigma,
 
@@ -393,7 +383,11 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-        CopyItemsd(keys=("pred", "image_1", "image_2", "label", "image_0"), times=1, names=("pred_for_save", "tumor_for_save", "background_for_save", "label_for_save", "image_for_save",))
+        SplitDimd(keys=("label",))
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+
+        CopyItemsd(keys=("pred", "label_1", "label_0", "image_0"), times=1, names=("pred_for_save", "ep_for_save", "label_for_save", "image_for_save",))
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
         Invertd(
@@ -439,21 +433,112 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
         SaveImaged(
-            keys=("tumor_for_save",),
+            keys=("ep_for_save",),
             writer="ITKWriter",
             output_dir=os.path.join(output_dir, "predictions"),
-            output_postfix="tumor",
+            output_postfix="extreme_points",
+            output_dtype=np.float32,
+            separate_folder=True,
+            resample=False,
+        )
+
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("image_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="image",
             output_dtype=np.float32,
             separate_folder=True,
             resample=False,
         )
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+        ToTensord(keys=("image", "label", "pred"), device=cpu_device),
+    ]
+    return Compose(t)
+
+
+# def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransform=None):
+    """
+    Get the post transforms used for processing and saving predictions.
+
+    Args:
+        labels (list): List of label names.
+        save_pred (bool): Flag to indicate whether to save predictions.
+        output_dir (str): Output directory for saving predictions.
+        pretransform (Compose): Pre-transform to be applied before inverting the prediction.
+
+    Returns:
+        Compose: A composition of transforms for post-processing and saving predictions.
+    """
+    cpu_device = torch.device("cpu")
+    if save_pred:
+        if output_dir is None:
+            raise UserWarning("output_dir may not be empty when save_pred is enabled...")
+        if pretransform is None:
+            logger.warning("Make sure to add a pretransform here if you want the prediction to be inverted")
+
+    input_keys = ("pred",)
+    t = [
+        
+        SplitDimd(keys=("label", ))
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SplitDimd(keys=("image", ))
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        CopyItemsd(keys=("pred", "label_1", "label_0", "image_0"), times=1, names=("pred_for_save", "extreme_points_for_save", "label_for_save", "image_for_save",))
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        Invertd(
+            keys=("pred_for_save", "label_for_save",),
+            orig_keys="image",
+            nearest_interp=False,
+            transform=pretransform,
+        )
+        if (save_pred and pretransform is not None)
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        Activationsd(keys=("pred",), softmax=True),
+        AsDiscreted(
+            keys="pred_for_save",
+            argmax=True, #applied to all predictions
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        AsDiscreted(
+            keys=("pred", "label"),
+            argmax=(True, False),
+            to_onehot=(len(labels), len(labels)),
+        ),
         SaveImaged(
-            keys=("background_for_save",),
+            keys=("pred_for_save",),
             writer="ITKWriter",
             output_dir=os.path.join(output_dir, "predictions"),
-            output_postfix="background",
+            output_postfix="pred",
+            output_dtype=np.uint8,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("extreme_points_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="label",
+            output_dtype=np.uint8,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+        SaveImaged(
+            keys=("label_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="label",
             output_dtype=np.float32,
             separate_folder=True,
             resample=False,

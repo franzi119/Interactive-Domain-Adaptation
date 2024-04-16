@@ -120,34 +120,16 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
         d = dict(data)
-        #print("d",d["image"].shape)
-
         label = d[self.label_key]
-        if label.shape[0] != 1:
-            raise ValueError("Only supports single channel labels!")
-
-        # Generate extreme points
+        new_shape = d[self.label_key][1].shape
         self.randomize(label[0, :])
-        d[list(self.label_names.keys())[0]] = self.points
-        d[list(self.label_names.keys())[1]] = []
-        #d["liver"] = self.points
-        #d["background"] =[]
-        #print("points: ", self.points)
+        inputs = torch.zeros(new_shape)
+        for point in self.points:
+            x, y, z = point
+            inputs[x, y, z] = 1 
 
-        # for key in self.key_iterator(d):
-        #     img = d[key]
-        #     points_image = extreme_points_to_image(
-        #         points=self.points,
-        #         label=label,
-        #         sigma=self.sigma,
-        #         rescale_min=self.rescale_min,
-        #         rescale_max=self.rescale_max,
-        #     )
-        #     points_image, *_ = convert_to_dst_type(points_image, img)  # type: ignore
-        #     d[key] = concatenate([img, points_image], axis=0)
-        #exit()
+        d['label'][1] = inputs
         return d
-        
 
 
 
@@ -229,7 +211,7 @@ class AddEmptySignalChannels(MapTransform):
         # Set up the initial batch data
 
         in_channels = len(data[LABELS_KEY]) 
-        tmp_image = data[CommonKeys.IMAGE][0 : 0 + 1, ...]
+        tmp_image = data[CommonKeys.IMAGE][0:0+1, ...] #load data into temp
         assert len(tmp_image.shape) == 4
         new_shape = list(tmp_image.shape)
         new_shape[0] = in_channels
@@ -237,11 +219,40 @@ class AddEmptySignalChannels(MapTransform):
         # image is on channel 0 of e.g. (1,128,128,128) and the signals get appended, so
         # e.g. (3,128,128,128) for two labels
         inputs = torch.zeros(new_shape) #, device=self.device)
-        inputs[0] = data[CommonKeys.IMAGE][0]
+        inputs[0] = data[CommonKeys.IMAGE][0] #load image into inputs
         if isinstance(data[CommonKeys.IMAGE], MetaTensor):
             data[CommonKeys.IMAGE].array = inputs
         else:
             data[CommonKeys.IMAGE] = inputs
+
+        return data
+    
+class AddEmptySignalChannelsLabel(MapTransform):
+    """
+        Adds empty channels to the signal which will be filled with the guidance signal later.
+        E.g. for two labels: 1x192x192x256 -> 3x192x192x256
+    """
+    def __init__(self, device, keys: KeysCollection = None):
+        super().__init__(keys)
+        self.device = device
+
+    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
+        # Set up the initial batch data
+
+        in_channels = len(data[LABELS_KEY]) 
+        tmp_image = data[CommonKeys.LABEL][0 : 0 + 1, ...]
+        assert len(tmp_image.shape) == 4
+        new_shape = list(tmp_image.shape)
+        new_shape[0] = in_channels
+        # Set the signal to 0 for all input images
+        # image is on channel 0 of e.g. (1,128,128,128) and the signals get appended, so
+        # e.g. (3,128,128,128) for two labels
+        inputs = torch.zeros(new_shape) #, device=self.device)
+        inputs[0] = data[CommonKeys.LABEL][0]
+        if isinstance(data[CommonKeys.LABEL], MetaTensor):
+            data[CommonKeys.LABEL].array = inputs
+        else:
+            data[CommonKeys.LABEL] = inputs
         return data
 
 
@@ -433,8 +444,10 @@ class AddGuidanceSignal(MapTransform):
         for key in self.key_iterator(data):
             if key == "image":
                 
-                image = data[key].to(torch.device("cuda:0"))
-                assert image.is_cuda 
+                image = data[key]
+
+                #image = data[key].to(torch.device("cuda:0"))
+                #assert image.is_cuda 
                 tmp_image = image[0 : 0 + self.number_intensity_ch, ...]
 
                 label_key = list(data[LABELS_KEY].keys())[0]
@@ -456,14 +469,14 @@ class AddGuidanceSignal(MapTransform):
                         key_label=label_key,
                     )
 
-                assert signal.is_cuda 
-                assert tmp_image.is_cuda 
+                #assert signal.is_cuda 
+                #assert tmp_image.is_cuda 
                 tmp_image = torch.cat([tmp_image, signal], dim=0)
                 if isinstance(data[key], MetaTensor):
                     data[key].array = tmp_image
                 else:
                     data[key] = tmp_image
-                #print('Addguidancesignal', data['image'].shape)
+
                 return data
             else:
                 raise UserWarning("This transform only applies to image key")
