@@ -20,7 +20,8 @@ import nibabel as nib
 import numpy as np
 import torch
 from monai.data import decollate_batch, list_data_collate
-from monai.engines import SupervisedEvaluator, SupervisedTrainer
+from sw_fastedit.utils.trainer import SupervisedTrainer
+from monai.engines import SupervisedEvaluator
 from monai.engines.utils import IterationEvents
 from monai.losses import DiceLoss
 from monai.transforms import Compose, ToDeviced, EnsureChannelFirstd, AsDiscreted
@@ -147,14 +148,19 @@ class Interaction:
         last_dice_loss = 1
         before_it = time.time()
         while True:
-
-
             assert iteration < 1000
             # Shape for interactive image e.g. 3x192x192x256, label 1x192x192x256
             # BCHWD
             inputs, labels = engine.prepare_batch(batchdata, device=engine.state.device)
             batchdata[CommonKeys.IMAGE] = inputs
             batchdata[CommonKeys.LABEL] = labels
+            print('shape inputs inter', inputs.shape)
+            print('shape lables inter', labels.shape)
+            inputs_ex = inputs[:,1:2,:,:,:]
+            inputs_img = inputs[:,0:1,:,:,:]
+            labels_ex = labels[:,1:2,:,:,:]
+            lables_img = labels[:,0:1,:,:,:]            
+
 
             if iteration == 0:
                 logger.info("inputs.shape is {}".format(inputs.shape))
@@ -163,8 +169,8 @@ class Interaction:
                 assert torch.sum(inputs[:, 1:, ...]) == 0
                 logger.info(f"image file name: {batchdata['image_meta_dict']['filename_or_obj']}")
                 logger.info(f"label file name: {batchdata['label_meta_dict']['filename_or_obj']}")
-
-                for i in range(len(batchdata["label"][0])):
+                print('check labels', batchdata["label"].shape)
+                for i in range(len(batchdata["label"])):
                     if torch.sum(batchdata["label"][i, 0]) < 0.1:
                         logger.warning("No valid labels for this sample (probably due to crop)")
 
@@ -222,26 +228,25 @@ class Interaction:
                     break
 
             engine.fire_event(IterationEvents.INNER_ITERATION_STARTED)
-            engine.network.eval()
+            engine.networks[0].eval()
 
             # Forward Pass
             with torch.no_grad():
                 if engine.amp:
                     with torch.cuda.amp.autocast():
-                        predictions = engine.inferer(inputs, engine.network)
+                        predictions = engine.inferer(inputs_ex, engine.networks[0])
                 else:
-                    predictions = engine.inferer(inputs, engine.network)
+                    predictions = engine.inferer(inputs_ex, engine.networks[0])
             
             batchdata[CommonKeys.PRED] = predictions
-            logger.info('commonkeyspred_shape %s', str(batchdata[CommonKeys.PRED].shape))
-            logger.info('commonkeyslabel_shape %s', str(batchdata[CommonKeys.PRED].shape))
+            #batchdata[CommonKeys.LABEL] = batchdata[CommonKeys.LABEL][:, 0:1, :, :, :]
+            #logger.info('commonkeyspred_shape %s', str(batchdata[CommonKeys.PRED].shape))
+            #logger.info('commonkeyslabel_shape %s', str(batchdata[CommonKeys.LABEL].shape))
             #last_dice_loss = self.dice_loss_function(input = torch.argmax(batchdata[CommonKeys.PRED], dim=1, keepdims=True), target = batchdata[CommonKeys.LABEL]).item()
-            last_dice_loss = self.dice_loss_function(input = batchdata[CommonKeys.PRED], target = batchdata[CommonKeys.LABEL]).item()
-            logger.info("commonkeyspred: %s",str(batchdata[CommonKeys.PRED][0][1][0]))
+            last_dice_loss = self.dice_loss_function(input = batchdata[CommonKeys.PRED], target = batchdata[CommonKeys.LABEL][:,0:1,...]).item()
+            #logger.info("commonkeyspred: %s",str(batchdata[CommonKeys.PRED][0][1][0]))
             #logger.info("commonkeyspred: %s",str(torch.argmax(batchdata[CommonKeys.PRED][0][1][0])))
-
-            
-            last_dice_metric = self.dice_metric(y_pred=torch.argmax(batchdata[CommonKeys.PRED], dim=1, keepdims=True), y=batchdata[CommonKeys.LABEL]).item()
+            last_dice_metric = self.dice_metric(y_pred=torch.argmax(batchdata[CommonKeys.PRED], dim=1, keepdims=True), y=batchdata[CommonKeys.LABEL][:,0:1,...]).item()
             dice_scores.append(last_dice_metric)
             logger.info(
                 f"It: {iteration} {self.dice_loss_function.__class__.__name__}: {last_dice_loss:.4f} {self.dice_metric.__class__.__name__}: {last_dice_metric:.4f} Epoch: {engine.state.epoch}"
@@ -279,6 +284,9 @@ class Interaction:
 
         logger.debug(f"Interaction took {time.time()- before_it:.2f} seconds..")
         engine.state.batch = batchdata
+
+        #batchdata[CommonKeys.LABEL] = batchdata[CommonKeys.LABEL][:, 0:1, :, :, :]
+        print('interaction batchdata[label]', batchdata[CommonKeys.LABEL].shape)
         return engine._iteration(engine, batchdata)  # train network with the final iteration cycle
 
     def debug_viz(self, inputs, labels, preds, j):

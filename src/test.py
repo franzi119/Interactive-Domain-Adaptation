@@ -65,17 +65,7 @@ def run(args):
     )
 
     network = get_network(args.network, args.labels, args.non_interactive).to(device)
-    _, test_inferer = get_inferers(
-        args.inferer,
-        sw_roi_size=args.sw_roi_size,
-        train_crop_size=args.train_crop_size,
-        val_crop_size=args.val_crop_size,
-        train_sw_batch_size=args.train_sw_batch_size,
-        val_sw_batch_size=args.val_sw_batch_size,
-        train_sw_overlap=args.train_sw_overlap,
-        val_sw_overlap=args.val_sw_overlap,
-        cache_roi_weight_map=True,
-    )
+    _, test_inferer = get_inferers()
 
     evaluator = get_test_evaluator(
         args,

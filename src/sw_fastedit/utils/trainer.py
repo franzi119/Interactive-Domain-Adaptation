@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 
+import logging
 import torch
 import numpy as np
 from monai.transforms import Compose, SaveImaged, SplitDimd
@@ -28,6 +29,8 @@ from monai.utils import GanKeys, min_version, optional_import
 from monai.utils.enums import CommonKeys as Keys
 from monai.utils.enums import EngineStatsKeys as ESKeys
 from sw_fastedit.data import get_post_transforms
+
+logger = logging.getLogger("sw_fastedit")
 
 if TYPE_CHECKING:
     from ignite.engine import Engine, EventEnum
@@ -205,7 +208,6 @@ class SupervisedTrainer(Trainer):
 
         """
 
-
         if batchdata is None:
             raise ValueError("Must provide batch data for current iteration.")
         batch = engine.prepare_batch(batchdata, engine.state.device, engine.non_blocking, **engine.to_kwargs)
@@ -215,7 +217,17 @@ class SupervisedTrainer(Trainer):
             kwargs: dict = {}
         else:
             inputs, targets, args, kwargs = batch
-            
+        print('')    
+        logger.info("inputs.shape is {}".format(inputs.shape))
+        logger.info("labels.shape is {}".format(targets.shape))
+        # Make sure the signal is empty in the first iteration assertion holds
+        assert torch.sum(inputs[:, 1:, ...]) == 0
+        logger.info(f"image file name: {batchdata['image_meta_dict']['filename_or_obj']}")
+        logger.info(f"label file name: {batchdata['label_meta_dict']['filename_or_obj']}")
+        #print('check labels', batchdata["label"].shape)
+        for i in range(len(batchdata["label"])):
+            if torch.sum(batchdata["label"][i, 0]) < 0.1:
+                logger.warning("No valid labels for this sample (probably due to crop)")
 
         engine.state.output = {Keys.IMAGE: inputs, Keys.LABEL: targets}
         def _compute_pred_loss():
@@ -224,8 +236,10 @@ class SupervisedTrainer(Trainer):
             #first network prediction ep (set correct label for ep)
             engine.state.output[Keys.LABEL] = targets[:, 1:2]
             engine.state.output[Keys.PRED] = engine.inferer(inputs, engine.networks[0], *args, **kwargs) 
+            #print('ep pred unique',torch.unique(engine.state.output[Keys.PRED]))
+            #print('ep pred non zero',torch.count_nonzero(engine.state.output[Keys.PRED]))
             
-            #concatenate output from first network and image as input for second network
+            #concatenate output from first network (ep_pred) and image as input for second network
             inputs_img_ep = torch.cat((inputs, engine.state.output[Keys.PRED]), dim=1) 
            
             #store extreme point prediction
@@ -242,15 +256,16 @@ class SupervisedTrainer(Trainer):
             engine.state.output[Keys.LOSS] = engine.loss_function(pred_seg_ep, targets).mean()
             engine.fire_event(IterationEvents.LOSS_COMPLETED)
 
-            #set targets back to both extreme points and segmentation
+            #set pred to pred from first and second network targets back to both extreme points and segmentation
+            engine.state.output['pred_ep'] = pred_ep
             engine.state.output[Keys.LABEL] = targets
 
-            
         #set networks to training mode
         engine.networks[0].train()
         engine.networks[1].train()
 
         engine.optimizer.zero_grad(set_to_none=engine.optim_set_to_none)
+
 
         if engine.amp and engine.scaler is not None:
             with torch.cuda.amp.autocast(**engine.amp_kwargs):

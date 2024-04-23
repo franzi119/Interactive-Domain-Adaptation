@@ -32,8 +32,10 @@ import torch
 from ignite.engine import Events
 from ignite.handlers import TerminateOnNan
 from monai.data import set_track_meta
-from sw_fastedit.trainer import SupervisedTrainer
-from monai.engines import EnsembleEvaluator, SupervisedEvaluator
+from sw_fastedit.utils.trainer import SupervisedTrainer
+from sw_fastedit.utils.evalutaor import SupervisedEvaluator
+from sw_fastedit.utils.validation_handler import ValidationHandler
+from monai.engines import EnsembleEvaluator
 from monai.handlers import (
     CheckpointLoader,
     CheckpointSaver,
@@ -42,12 +44,11 @@ from monai.handlers import (
     LrScheduleHandler,
     MeanDice,
     StatsHandler,
-    ValidationHandler,
     from_engine,
 )
 from monai.inferers import SimpleInferer, SlidingWindowInferer
 from monai.losses import DiceCELoss, DiceLoss
-from sw_fastedit. dice_ce_l2 import DiceCeL2Loss
+from sw_fastedit.dice_ce_l2 import DiceCeL2Loss
 from monai.metrics import MSEMetric
 from monai.metrics import SurfaceDiceMetric
 from monai.networks.nets.dynunet import DynUNet
@@ -541,7 +542,7 @@ def get_supervised_evaluator(
     post_transform,
     key_val_metric,
     additional_metrics,
-) -> EnsembleEvaluator:
+) -> SupervisedEvaluator:
     """
     Retrieves a supervised evaluator for validation in a MONAI training workflow.
 
@@ -566,7 +567,7 @@ def get_supervised_evaluator(
 
     init(args)
 
-    evaluator = EnsembleEvaluator(
+    evaluator = SupervisedEvaluator(
         device=device,
         val_data_loader=val_loader,
         networks=networks,
@@ -655,7 +656,7 @@ def get_ensemble_evaluator(
 
 def get_trainer(
     args, file_prefix="", ensemble_mode: bool = False, resume_from="None"
-) -> List[SupervisedTrainer | None, EnsembleEvaluator | None, List]:
+) -> List[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
     """
     Retrieves a supervised trainer, evaluator, and related metrics for training in a MONAI deep learning workflow.
 
@@ -776,18 +777,21 @@ def get_trainer(
     if not args.eval_only:
             save_dict = {
                 "trainer": trainer,
-                "net": networks[0],
+                "net_ep": networks[0],
+                "net_seg": networks[1],
                 "opt": optimizer,
                 "lr": lr_scheduler,
             }
     else:
         save_dict = {
-            "net": networks[0],
+            "net_ep": networks[0],
+            "net_seg": networks[1],
         }
 
     if ensemble_mode:
         save_dict = {
-            "net": networks[0],
+            "net_ep": networks[0],
+            "net_seg": networks[1],
         }
 
     if not ensemble_mode:

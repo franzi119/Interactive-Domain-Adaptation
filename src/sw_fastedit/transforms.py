@@ -18,6 +18,7 @@ import logging
 from typing import Dict, Hashable, List, Mapping, Tuple
 
 import torch
+from scipy.ndimage import gaussian_filter
 from monai.config import KeysCollection
 from monai.data import MetaTensor, PatchIterd
 from monai.losses import DiceLoss
@@ -121,14 +122,9 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
         d = dict(data)
         label = d[self.label_key]
-        new_shape = d[self.label_key][1].shape
         self.randomize(label[0, :])
-        inputs = torch.zeros(new_shape)
-        for point in self.points:
-            x, y, z = point
-            inputs[x, y, z] = 1 
 
-        d['label'][1] = inputs
+        d['guidance'] = self.points
         return d
 
 
@@ -316,6 +312,63 @@ class NormalizeLabelsInDatasetd(MapTransform):
             else:
                 raise UserWarning("Only the key label is allowed here!")
         return data
+
+class AddGuidanceSignald(MapTransform):
+    def __init__(
+        self,
+        keys: KeysCollection,
+        allow_missing_keys: bool = False,
+        guidance: str = "guidance",
+        sigma: int = 2,
+        number_intensity_ch=3,
+    ):
+        super().__init__(keys, allow_missing_keys)
+
+        self.guidance = guidance
+        self.sigma = sigma
+        self.number_intensity_ch = number_intensity_ch
+
+    def signal(self, shape, points):
+        signal = np.zeros(shape, dtype=np.float32)
+
+        flag = False
+        for p in points:
+            if np.any(np.asarray(p) < 0):
+                continue
+            if len(shape) == 3:
+                signal[p[-3], p[-2], p[-1]] = 1.0
+            else:
+                signal[p[-2], p[-1]] = 1.0
+            flag = True
+
+        if flag:
+            signal = gaussian_filter(signal, sigma=self.sigma)
+            signal = (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
+        return torch.Tensor(signal)[None]
+
+    def __call__(self, data):
+        d = dict(data)
+        for key in self.keys:
+            img = d[key]
+
+            guidance = d[self.guidance]
+
+            guidance = json.loads(guidance) if isinstance(guidance, str) else guidance
+            if guidance and (guidance[0] or guidance[1]):
+                img = img[0 : 0 + self.number_intensity_ch, ...]
+
+                shape = img.shape[-2:] if len(img.shape) == 3 else img.shape[-3:]
+                device = img.device if isinstance(img, torch.Tensor) else None
+                res = self.signal(shape, guidance).to(device=device)
+                #pos = self.signal(shape, guidance[0]).to(device=device)
+                #neg = self.signal(shape, guidance[1]).to(device=device)
+                result = torch.concat([img if isinstance(img, torch.Tensor) else torch.Tensor(img), res])
+            else:
+                s = torch.zeros_like(img[0])[None]
+                result = torch.concat([img, s, s])
+            result = torch.round(result)
+            d[key] = result
+        return d
 
 
 class AddGuidanceSignal(MapTransform):

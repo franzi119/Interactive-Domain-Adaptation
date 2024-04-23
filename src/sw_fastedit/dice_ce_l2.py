@@ -1,6 +1,7 @@
 import warnings
 from typing import Callable, List, Optional, Sequence, Union
 
+import logging
 import numpy as np
 import torch
 import torch.nn as nn
@@ -13,6 +14,9 @@ from monai.losses import DiceLoss, DiceCELoss
 from monai.utils import DiceCEReduction, LossReduction, Weight, look_up_option
 from monai.data import list_data_collate, decollate_batch
 from monai.transforms import AsDiscrete
+
+logger = logging.getLogger("sw_fastedit")
+
 
 
 class DiceCeL2Loss(_Loss):
@@ -32,7 +36,7 @@ class DiceCeL2Loss(_Loss):
         ce_weight: Optional[torch.Tensor] = None,
         lambda_dice: float = 1,
         lambda_ce: float = 1,
-        lambda_rec: float = 0.5,
+        lambda_rec: float = 1,
         args=None
     ) -> None:
         """
@@ -79,7 +83,6 @@ class DiceCeL2Loss(_Loss):
         # include_background should be set to True if the dice loss stagnates because the error signal is too weak from the small tumor lesions
         self.dice = DiceLoss(to_onehot_y=to_onehot_y, softmax=softmax, include_background=include_background, batch=batch)
 
-
         self.cross_entropy = nn.CrossEntropyLoss(weight=ce_weight, reduction=reduction)
         self.rec_loss = nn.MSELoss()
         if lambda_dice < 0.0:
@@ -125,30 +128,21 @@ class DiceCeL2Loss(_Loss):
             ValueError: When number of channels for target is neither 1 nor the same as input.
 
         """
-
         input_seg =  input[:,0:2] #get segmentation predicition
         input_ep = input[:,2:3] #get extrme point prediction
 
         target_seg = target[:,0:1]
         target_ep = target[:,1:2]
 
-        #print('target_seg',torch.count_nonzero(target_seg))
-        #print('target_ep',torch.count_nonzero(target_ep))
-
-
         if len(input_seg.shape) != len(target_seg.shape):
             raise ValueError("the number of dimensions for input and target should be the same.")
         dice_loss = self.dice(input_seg, target_seg)
         ce_loss = self.ce(input_seg, target_seg)
-        print('dicece_loss', dice_loss+ce_loss)
+       
 
         rec_loss = self.rec_loss(input_ep, target_ep)
-        print('mean_squared_loss', rec_loss)
-
-
+    
         total_loss: torch.Tensor = self.lambda_dice * dice_loss + self.lambda_dice * ce_loss + self.lambda_rec * rec_loss
-        print('Total loss:', total_loss.item(), '\tDiceCE', dice_loss.item()+ce_loss.item(), 'Mean squared error', rec_loss.item()  )
-        print('')
-
+        logger.info(f"Total loss: {total_loss.item()}, DiceCE: {dice_loss.item()+ce_loss.item()}, Mean squared error: {rec_loss} ")
 
         return total_loss    
