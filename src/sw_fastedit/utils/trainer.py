@@ -21,14 +21,14 @@ from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
 
 from monai.config import IgniteInfo
-from monai.engines.utils import IterationEvents, default_make_latent, default_metric_cmp_fn, default_prepare_batch
+from monai.engines.utils import IterationEvents, default_make_latent, default_metric_cmp_fn #default_prepare_batch
 from monai.engines.workflow import Workflow
 from monai.inferers import Inferer, SimpleInferer
 from monai.transforms import Transform
 from monai.utils import GanKeys, min_version, optional_import
-from monai.utils.enums import CommonKeys as Keys
-from monai.utils.enums import EngineStatsKeys as ESKeys
-from sw_fastedit.data import get_post_transforms
+from sw_fastedit.utils.enums import CommonKeys as Keys
+from sw_fastedit.utils.enums import EngineStatsKeys as ESKeys
+from sw_fastedit.utils.prepare_batch import default_prepare_batch
 
 logger = logging.getLogger("sw_fastedit")
 
@@ -141,7 +141,7 @@ class SupervisedTrainer(Trainer):
         train_data_loader: Iterable | DataLoader,
         networks: Sequence | torch.nn.Module,
         optimizer: Optimizer,
-        loss_function: Callable,
+        loss_function: Sequence | Callable,
         epoch_length: int | None = None,
         non_blocking: bool = False,
         prepare_batch: Callable = default_prepare_batch,
@@ -186,6 +186,7 @@ class SupervisedTrainer(Trainer):
         self.loss_function = loss_function
         self.inferer = SimpleInferer() if inferer is None else inferer
         self.optim_set_to_none = optim_set_to_none
+        self.loss_discriminator = {}
 
 
 
@@ -212,32 +213,90 @@ class SupervisedTrainer(Trainer):
             raise ValueError("Must provide batch data for current iteration.")
         batch = engine.prepare_batch(batchdata, engine.state.device, engine.non_blocking, **engine.to_kwargs)
         if len(batch) == 2:
-            inputs, targets = batch
+            inputs, targets= batch
             args: tuple = ()
             kwargs: dict = {}
         else:
             inputs, targets, args, kwargs = batch
-        print('')    
+
         logger.info("inputs.shape is {}".format(inputs.shape))
         logger.info("labels.shape is {}".format(targets.shape))
         # Make sure the signal is empty in the first iteration assertion holds
         assert torch.sum(inputs[:, 1:, ...]) == 0
-        logger.info(f"image file name: {batchdata['image_meta_dict']['filename_or_obj']}")
+        keys = list(batchdata.keys())
+        print(keys)
+
+        if(keys[0]== 'image_mri'):
+            logger.info(f"image file name: {batchdata['image_mri_meta_dict']['filename_or_obj']}")
+        else:
+            logger.info(f"image file name: {batchdata['image_ct_meta_dict']['filename_or_obj']}")
+
         logger.info(f"label file name: {batchdata['label_meta_dict']['filename_or_obj']}")
         #print('check labels', batchdata["label"].shape)
         for i in range(len(batchdata["label"])):
             if torch.sum(batchdata["label"][i, 0]) < 0.1:
                 logger.warning("No valid labels for this sample (probably due to crop)")
 
-        engine.state.output = {Keys.IMAGE: inputs, Keys.LABEL: targets}
-        def _compute_pred_loss():
+
+        def _calculate_discriminator_loss():
+            if(keys[0]== 'image_mri'):
+                engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.REALS], engine.networks[2], *args, **kwargs)
+                loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.ones_like(engine.state.output[GanKeys.LATENTS]))
+                self.loss_discriminator['loss_mri'] = loss
+                print('image mri loss', loss.item())
+            else: 
+                engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.FAKES], engine.networks[2], *args, **kwargs)
+                loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.zeros_like(engine.state.output[GanKeys.LATENTS]))
+                self.loss_discriminator['loss_ct'] = loss
+                print('image ct loss', loss.item())
+            
+            #print(self.loss_discriminator)
+            if 'loss_mri' in self.loss_discriminator and 'loss_ct' in self.loss_discriminator:
+                engine.networks[2].train()
+                engine.networks[2].zero_grad()
+                for param in engine.networks[0].parameters():
+                    param.requires_grad = False
+                for param in engine.networks[1].parameters():
+                    param.requires_grad = False
+                for param in engine.networks[2].parameters():
+                    param.requires_grad = True
+                engine.state.output[GanKeys.DLOSS] = self.loss_discriminator['loss_mri'] + self.loss_discriminator['loss_ct']
+                print('loss discriminator', engine.state.output[GanKeys.DLOSS].item())
+                engine.scaler.scale(engine.state.output[GanKeys.DLOSS]).backward()
+                engine.fire_event(IterationEvents.BACKWARD_COMPLETED)
+                del self.loss_discriminator['loss_mri'], self.loss_discriminator['loss_ct']
+            
+            print('')
+
+            return loss
+            
+        
+
+        def _compute_pred_loss(label_key):
+
+            engine.networks[0].train()
+            engine.networks[1].train()
+            
+
+            #engine.optimizer.zero_grad(set_to_none=engine.optim_set_to_none)
+            engine.networks[0].zero_grad()
+            engine.networks[1].zero_grad()
+            for param in engine.networks[0].parameters():
+                param.requires_grad = True
+            for param in engine.networks[1].parameters():
+                param.requires_grad = True
+            for param in engine.networks[2].parameters():
+                param.requires_grad = False
+
+            if keys[0]== 'image_mri':    
+                engine.state.output = {Keys.IMAGE_MRI: inputs, Keys.LABEL: targets}
+            else:
+                engine.state.output = {Keys.IMAGE_CT: inputs, Keys.LABEL: targets}
 
             engine.state.output = {} 
             #first network prediction ep (set correct label for ep)
-            engine.state.output[Keys.LABEL] = targets[:, 1:2]
+            engine.state.output[label_key] = targets[:, 1:2]
             engine.state.output[Keys.PRED] = engine.inferer(inputs, engine.networks[0], *args, **kwargs) 
-            #print('ep pred unique',torch.unique(engine.state.output[Keys.PRED]))
-            #print('ep pred non zero',torch.count_nonzero(engine.state.output[Keys.PRED]))
             
             #concatenate output from first network (ep_pred) and image as input for second network
             inputs_img_ep = torch.cat((inputs, engine.state.output[Keys.PRED]), dim=1) 
@@ -246,42 +305,55 @@ class SupervisedTrainer(Trainer):
             pred_ep = engine.state.output[Keys.PRED]
 
             #second network prediction set correct labels for segmentation
-            engine.state.output[Keys.LABEL] = targets[:, 0:1]
+            engine.state.output[label_key] = targets[:, 0:1]
             engine.state.output[Keys.PRED] = engine.inferer(inputs_img_ep, engine.networks[1], *args, **kwargs)
 
             #concatenate extreme point pred and segmentation pred, should have 3 channels (1 output from ep and 2 from seg)
             pred_seg_ep = torch.cat((engine.state.output[Keys.PRED], pred_ep), dim=1)
         
             engine.fire_event(IterationEvents.FORWARD_COMPLETED)
-            engine.state.output[Keys.LOSS] = engine.loss_function(pred_seg_ep, targets).mean()
+            engine.state.output[Keys.LOSS] = engine.loss_function[0](pred_seg_ep, targets).mean()
             engine.fire_event(IterationEvents.LOSS_COMPLETED)
 
             #set pred to pred from first and second network targets back to both extreme points and segmentation
             engine.state.output['pred_ep'] = pred_ep
-            engine.state.output[Keys.LABEL] = targets
+            engine.state.output[label_key] = targets 
+            if keys[0] == 'image_mri':
+                engine.state.output[GanKeys.REALS] = engine.state.output[Keys.PRED]
+            else:
+                engine.state.output[GanKeys.FAKES] = engine.state.output[Keys.PRED]
+
+            engine.scaler.scale(engine.state.output[Keys.LOSS]).backward(retain_graph=True)
+            engine.fire_event(IterationEvents.BACKWARD_COMPLETED)
+        
 
         #set networks to training mode
-        engine.networks[0].train()
-        engine.networks[1].train()
 
-        engine.optimizer.zero_grad(set_to_none=engine.optim_set_to_none)
+        # for param in engine.networks[0].parameters():
+        #     param.requires_grad = False
+        # engine.networks[1].zero_grad()
+
+        # with torch.zeros_grad():
+        #     model1(inpit)
+        #     mode2(inpit)
+        # model
 
 
         if engine.amp and engine.scaler is not None:
             with torch.cuda.amp.autocast(**engine.amp_kwargs):
-                _compute_pred_loss()
-            engine.scaler.scale(engine.state.output[Keys.LOSS]).backward()
-            engine.fire_event(IterationEvents.BACKWARD_COMPLETED)
+                _compute_pred_loss(keys[1])
+                _calculate_discriminator_loss()
+
             engine.scaler.step(engine.optimizer)
             engine.scaler.update()
+           
         else:
-            _compute_pred_loss()
-            engine.state.output[Keys.LOSS].backward()
-            engine.fire_event(IterationEvents.BACKWARD_COMPLETED)
+            _compute_pred_loss(keys[1])
+            _calculate_discriminator_loss()
             engine.optimizer.step()
         
         engine.fire_event(IterationEvents.MODEL_COMPLETED)  
-
+        
         return engine.state.output
 
 

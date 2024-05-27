@@ -11,6 +11,7 @@ from typing import Dict, List
 
 import numpy as np
 import torch
+from torch.utils.data import ConcatDataset
 from monai.apps import CrossValidation
 from monai.data import DataLoader, Dataset, ThreadDataLoader, partition_dataset
 from monai.data.dataset import PersistentDataset
@@ -39,13 +40,15 @@ from monai.transforms import (
     ScaleIntensityRangePercentilesd,
     SignalFillEmptyd,
     Spacingd,
-    SplitDimd,
+    #SplitDimd,
     ToDeviced,
     ToTensord,
     VoteEnsembled,
 
 )
 from monai.utils.enums import CommonKeys
+
+from sw_fastedit.utils.alternatingSampler import AlternatingSampler
 
 from sw_fastedit.helper_transforms import (
     CheckTheAmountOfInformationLossByCropd,
@@ -62,7 +65,10 @@ from sw_fastedit.transforms import (
     NormalizeLabelsInDatasetd,
     SplitPredsLabeld,
     FlipChanneld,
-    AddGuidanceSignald
+    AddGuidanceSignald,
+    AddMRIorCT,
+    PrintShape,
+    SplitDimd,
 )
 from sw_fastedit.utils.helper import convert_mha_to_nii, convert_nii_to_mha
 
@@ -72,22 +78,22 @@ logger = logging.getLogger("sw_fastedit")
 PET_dataset_names = ["AutoPET", "AutoPET2", "AutoPET_merged", "HECKTOR", "AutoPET2_Challenge", "AMOS"]
 
 
-def get_pre_transforms(labels: Dict, device, args, input_keys=("image", "label")):
-    """
-    Get pre-transforms for both the training and validation dataset.
+# def get_pre_transforms(labels: Dict, device, args, input_keys=("image", "label")):
+#     """
+#     Get pre-transforms for both the training and validation dataset.
 
-    Args:
-        labels (Dict): Dictionary containing label-related information.
-        device: Device to be used for computation.
-        args: Additional arguments.
-        input_keys (Tuple): Tuple containing input keys, default is ("image", "label").
+#     Args:
+#         labels (Dict): Dictionary containing label-related information.
+#         device: Device to be used for computation.
+#         args: Additional arguments.
+#         input_keys (Tuple): Tuple containing input keys, default is ("image", "label").
 
-    Returns:
-        Tuple[Compose, Compose]: A tuple containing Compose instances for training and validation pre-transforms.
-    """
-    return Compose(get_pre_transforms_train_as_list(labels, device, args, input_keys)), Compose(
-        get_pre_transforms_val_as_list(labels, device, args, input_keys)
-    )
+#     Returns:
+#         Tuple[Compose, Compose]: A tuple containing Compose instances for training and validation pre-transforms.
+#     """
+#     return Compose(get_pre_transforms_train_as_list(labels, device, args, input_keys)), Compose(
+#         get_pre_transforms_val_as_list(labels, device, args, input_keys)
+#     )
 
 
 def get_spacing(args):
@@ -112,8 +118,8 @@ def get_spacing(args):
     HECKTOR_SPACING = (2.03642011, 2.03642011, 3.0)
     #2 options from the AMOS22 challenge paper Fabian Isensee
     #AMOS_SPACING = (1.03642011, 2.03642011, 1.0)
-    AMOS_SPACING = (3*0.69, 3*0.69, 3*2.0)
-    #AMOS_SPACING = (2*1.5, 2*1.0, 2*1.0) 
+    #AMOS_SPACING = (3*0.69, 3*0.69, 3*2.0)
+    AMOS_SPACING = (3*1.5, 3*1.0, 3*1.0) 
     # TODO Franzi Define AMOS Spacings
 
     if args.dataset == "AutoPET" or args.dataset == "AutoPET2" or args.dataset == "AutoPET2_Challenge":
@@ -128,7 +134,7 @@ def get_spacing(args):
         raise UserWarning(f"No valid dataset found: {args.dataset}")
 
 #TODO: Franzi change transforms for AMOS dataset here
-def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("image", "label")):
+def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys, label, image):
     """
     Get a list of pre-transforms for training data.
 
@@ -165,28 +171,35 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
                 image_only=False,
                 simple_keys=True,
             ),
+            #PrintShape(keys=input_keys, prev_transform='load image'),
             ToTensord(keys=input_keys, device=cpu_device, track_meta=True),
             EnsureChannelFirstd(keys=input_keys),
-            NormalizeLabelsInDatasetd(keys="label", labels=labels, device=cpu_device, allow_missing_keys=True),
+            NormalizeLabelsInDatasetd(keys=label, labels=labels, device=cpu_device, allow_missing_keys=True),
+            #PrintShape(keys=input_keys, prev_transform='normalizeLablesin dataste'),
+
             Orientationd(keys=input_keys, axcodes="RAS"),
-            Spacingd(keys='image', pixdim=spacing),
-            Spacingd(keys='label', pixdim=spacing, mode="nearest") if ('label' in input_keys) else Identityd(keys=input_keys, allow_missing_keys=True),
+            #PrintShape(keys=input_keys, prev_transform='orientationd'),
+            Spacingd(keys=image, pixdim=spacing),
+            Spacingd(keys=label, pixdim=spacing, mode="nearest") if (label in input_keys) else Identityd(keys=input_keys, allow_missing_keys=True),
+            #PrintShape(keys=input_keys, prev_transform='spacing'),
             CropForegroundd(
                 keys=input_keys,
-                source_key="image",
+                source_key=image,
                 select_fn=threshold_foreground,
             )
             if args.crop_foreground
             else Identityd(keys=input_keys, allow_missing_keys=True),
+            #PrintShape(keys=input_keys, prev_transform='identityd'),
             # 0.05 and 99.95 percentiles of the spleen HUs, either manually or automatically
-            ScaleIntensityRanged(keys="image", a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True)
+            ScaleIntensityRanged(keys=image, a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True)
             if args.scale_intensity_ranged
             else ScaleIntensityRangePercentilesd(
-                keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
+                keys=image, lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             ),
             DivisiblePadd(keys=input_keys, k=32, value=0)
             if args.inferer == "SimpleInferer"
             else Identityd(keys=input_keys, allow_missing_keys=True),  # UNet needs this, 32 for 6 layers, for 7 at least 64
+            #PrintShape(keys=input_keys, prev_transform='divisible pad'),
             
             #Data augmentation
             RandFlipd(keys=input_keys, spatial_axis=[0], prob=0.10),
@@ -195,10 +208,13 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
             RandRotate90d(keys=input_keys, prob=0.10, max_k=3),
             #For debugging, replacing nan
             SignalFillEmptyd(input_keys),
+            #PrintShape(keys=input_keys, prev_transform='signal fill empty'),
             #add ground truth extreme points to label
-            AddExtremePointsChanneld(label_names = args.labels,keys = "label", label_key = "label",sigma = args.sigma,),
+            AddExtremePointsChanneld(label_names = args.labels,keys = label, label_key = label,sigma = args.sigma,),
             #convert extreme points to gausian heatmap
-            AddGuidanceSignald(keys="label",sigma=args.sigma),
+            AddGuidanceSignald(keys=label,sigma=args.sigma),
+            #PrintShape(keys=input_keys, prev_transform='add guidance signal'),
+            #AddMRIorCT(keys=label),
          
 
             # Move to GPU
@@ -217,7 +233,7 @@ def get_pre_transforms_train_as_list(labels: Dict, device, args, input_keys=("im
     return t
 
 #TODO: Franzi for AMOS dataset, SAME AS TRAIN BUT WITHOUT AUGMENTATION
-def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("image", "label")):
+def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys, label, image):
     """
     Get a list of pre-transforms for validation data.
 
@@ -251,20 +267,20 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             ),  # necessary if the dataloader runs in an extra thread / process
             LoadImaged(keys=input_keys, reader="ITKReader", image_only=False),
             EnsureChannelFirstd(keys=input_keys),
-            NormalizeLabelsInDatasetd(keys="label", labels=labels, device=cpu_device, allow_missing_keys=True),
+            NormalizeLabelsInDatasetd(keys=label, labels=labels, device=cpu_device, allow_missing_keys=True),
             # Only for HECKTOR, filter out the values > 1
-            Lambdad(keys="label", func=cast_labels_to_zero_and_one) if (args.dataset == "HECKTOR") else Identityd(keys=input_keys, allow_missing_keys=True),
+            Lambdad(keys=label, func=cast_labels_to_zero_and_one) if (args.dataset == "HECKTOR") else Identityd(keys=input_keys, allow_missing_keys=True),
             Orientationd(keys=input_keys, axcodes="RAS"),
-            Spacingd(keys='image', pixdim=spacing),
-            Spacingd(keys='label', pixdim=spacing, mode="nearest") if ('label' in input_keys) else Identityd(keys=input_keys, allow_missing_keys=True),
-            CheckTheAmountOfInformationLossByCropd(
-                keys="label", roi_size=args.val_crop_size, crop_foreground=args.crop_foreground
-            )
-            if "label" in input_keys
-            else Identityd(keys=input_keys, allow_missing_keys=True),
+            Spacingd(keys=image, pixdim=spacing),
+            Spacingd(keys=label, pixdim=spacing, mode="nearest") if (label in input_keys) else Identityd(keys=input_keys, allow_missing_keys=True),
+            # CheckTheAmountOfInformationLossByCropd(
+            #     keys=label, roi_size=args.val_crop_size, crop_foreground=args.crop_foreground
+            # )
+            # if label in input_keys
+            # else Identityd(keys=input_keys, allow_missing_keys=True),
             CropForegroundd(
                 keys=input_keys,
-                source_key="image",
+                source_key=image,
                 select_fn=threshold_foreground,
             )
             if args.crop_foreground
@@ -273,22 +289,21 @@ def get_pre_transforms_val_as_list(labels: Dict, device, args, input_keys=("imag
             if args.val_crop_size is not None
             else Identityd(keys=input_keys, allow_missing_keys=True),
             # 0.05 and 99.95 percentiles of the spleen HUs, either manually or automatically
-            ScaleIntensityRanged(keys="image", a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True)
+            ScaleIntensityRanged(keys=image, a_min=-45, a_max=105, b_min=0.0, b_max=1.0, clip=True)
             if args.scale_intensity_ranged
             else ScaleIntensityRangePercentilesd(
-                keys="image", lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
+                keys=image, lower=0.05, upper=99.95, b_min=0.0, b_max=1.0, clip=True, relative=False
             ),
             DivisiblePadd(keys=input_keys, k=32, value=0)
             if args.inferer == "SimpleInferer"
             else Identityd(keys=input_keys, allow_missing_keys=True),
             #add ground truth extreme points to label
-            AddExtremePointsChanneld(label_names = args.labels,keys = "label", label_key = "label",sigma = args.sigma,),
-            AddGuidanceSignald(keys="label",sigma=args.sigma),
+            AddExtremePointsChanneld(label_names = args.labels,keys = label, label_key = label,sigma = args.sigma,),
+            AddGuidanceSignald(keys=label,sigma=args.sigma),
+            #AddMRIorCT(keys="label")
     
         ]
         
-
-
     if args.debug:
         for i in range(len(t)):
             t[i] = TrackTimed(t[i])
@@ -380,16 +395,18 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
 
     input_keys = ("pred",)
     t = [
-        SplitDimd(keys=("image",))
+        
+
+        SplitDimd(keys=('image'))
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-        SplitDimd(keys=("label",))
+        SplitDimd(keys=('label'))
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-
-        CopyItemsd(keys=("pred", "pred_ep", "label_1", "label_0", "image_0"), times=1, names=("pred_seg_for_save", "pred_ep_for_save", "ep_for_save", "label_for_save", "image_for_save",))
+        #PrintShape(),
+        CopyItemsd(keys=("pred_seg", "pred_ep", "label_1", "label_0", "image_0"), times=1, names=("pred_seg_for_save", "pred_ep_for_save", "ep_for_save", "label_for_save", "image_for_save",))
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
         
@@ -582,61 +599,37 @@ def get_post_ensemble_transforms(labels, device, pred_dir, pretransform, nfolds=
     return Compose(t)
 
 
-def get_val_post_transforms(labels, device):
-    """
-    Get post transforms for validation predictions.
+# def get_val_post_transforms(labels, device):
+#     """
+#     Get post transforms for validation predictions.
 
-    Args:
-        labels (list): List of label names.
-        device: Device for computation.
+#     Args:
+#         labels (list): List of label names.
+#         device: Device for computation.
 
-    Returns:
-        Compose: A composition of transforms for processing validation predictions.
+#     Returns:
+#         Compose: A composition of transforms for processing validation predictions.
 
-    Note:
-        The transforms include activation, discretization, and segmentation for evaluating dice score per segment/label.
-    """
-    t = [
-        Activationsd(keys="pred", softmax=True),
-        AsDiscreted(
-            keys=("pred"),
-            argmax=(True, False),
-            to_onehot=(len(labels), len(labels)),
-        ),
-        # This transform is to check dice score per segment/label
-        SplitPredsLabeld(keys="pred"),
-    ]
-    return Compose(t)
-
-
-def get_AutoPET_file_list(args) -> List[List, List, List]:
-    """
-    Get file lists for AutoPET dataset.
-
-    Args:
-        args: Command line arguments.
-
-    Returns:
-        Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
-        A tuple containing lists of training, validation, and test data dictionaries.
-        Each dictionary contains the paths to the image and label files.
-    """
-    train_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTr", "*.nii.gz")))
-    train_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTr", "*.nii.gz")))
-
-    test_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTs", "*.nii.gz")))
-    test_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTs", "*.nii.gz")))
-
-    train_data = [
-        {"image": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
-    ]
-    val_data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
-    test_data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
-
-    return train_data, val_data, test_data
+#     Note:
+#         The transforms include activation, discretization, and segmentation for evaluating dice score per segment/label.
+#     """
+#     t = [
+#         Activationsd(keys="pred", softmax=True),
+#         AsDiscreted(
+#             keys=("pred"),
+#             argmax=(True, False),
+#             to_onehot=(len(labels), len(labels)),
+#         ),
+#         # This transform is to check dice score per segment/label
+#         SplitPredsLabeld(keys="pred"),
+#     ]
+#     return Compose(t)
 
 
-def get_AMOS_file_list(args) -> List[List, List, List]:
+
+
+
+def get_AMOS_file_list(args, image_type: str) -> List[List, List, List]:
     """
     Get file lists for AutoPET dataset.
 
@@ -648,17 +641,24 @@ def get_AMOS_file_list(args) -> List[List, List, List]:
         A tuple containing lists of training, validation, and test data dictionaries.
         Each dictionary contains the paths to the image and label files.
     """
-    train_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTr", "*.nii.gz")))
-    train_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTr", "*.nii.gz")))
+    train_images = sorted(glob.glob(os.path.join(args.input_dir,image_type, "imagesTr", "*.nii.gz")))
+    train_labels = sorted(glob.glob(os.path.join(args.input_dir, image_type,"labelsTr", "*.nii.gz")))
 
-    test_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTs", "*.nii.gz")))
-    test_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTs", "*.nii.gz")))
+    test_images = sorted(glob.glob(os.path.join(args.input_dir, image_type,"imagesTs", "*.nii.gz")))
+    test_labels = sorted(glob.glob(os.path.join(args.input_dir, image_type,"labelsTs", "*.nii.gz")))
 
-    train_data = [
-        {"image": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
-    ]
-    val_data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
-    test_data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+    if(image_type=='CT'):
+        train_data = [
+            {"image_ct": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
+        ]
+        val_data = [{"image_ct": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+        test_data = [{"image_ct": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+    else:
+        train_data = [
+            {"image_mri": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
+        ]
+        val_data = [{"image_mri": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+        test_data = [{"image_mri": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
 
     return train_data, val_data, test_data
 
@@ -679,158 +679,13 @@ def get_filename_without_extensions(nifti_path):
     return Path(os.path.basename(nifti_path)).with_suffix("").with_suffix("").name
 
 
-def get_AutoPET2_Challenge_file_list(args) -> List[List, List, List]:
-    """
-    Retrieves file lists for the AutoPET2 Challenge dataset.
-
-    Args:
-        args: Command-line arguments specifying input and cache directories.
-
-    Returns:
-        Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
-        A tuple containing a dictonary for the test data.
-
-    Note:
-        This function processes AutoPET2 Challenge data, converts .mha files to .nii.gz format, and returns
-        test data entries with the corresponding NIfTI file paths.
-    """
-    test_images = sorted(glob.glob(os.path.join(args.input_dir, "*.mha")))
-
-    logger.info(f"{test_images=}")
-    test_data = []
-    for image_path in test_images:
-        logger.info(f"Converting {image_path} to .nii.gz")
-        uuid = get_filename_without_extensions(image_path)
-        nii_path = os.path.join(args.cache_dir, f"{uuid}.nii.gz")
-        convert_mha_to_nii(image_path, nii_path)
-        test_data.append({"image": nii_path})
-
-    logger.info(f"{test_data=}")
-    return [], [], test_data
 
 
-def post_process_AutoPET2_Challenge_file_list(args, pred_dir, cache_dir):
-    """
-    Post-processes predictions for the AutoPET2 Challenge dataset.
-
-    Args:
-        args: Command-line arguments specifying output directory.
-        pred_dir: Directory containing predicted NIfTI files.
-        cache_dir: Directory for intermediate file storage.
-
-    Note:
-        This function moves predicted NIfTI files to a subdirectory, retrieves the list of NIfTI files,
-        and creates corresponding .mha files for further processing.
-    """
-    logger.info("POSTPROCESSING AutoPET challenge files")
-    nii_dir = os.path.join(cache_dir, "prediction")
-    shutil.move(pred_dir, nii_dir)
-    os.makedirs(pred_dir, exist_ok=True)
-    nii_images = sorted(glob.glob(os.path.join(nii_dir, "*.nii.gz")))
-    logger.info(nii_images)
-
-    for image_path in nii_images:
-        logger.info(f"Using nii file {image_path}")
-        image_name = get_filename_without_extensions(image_path)
-        uuid = image_name
-        logger.info(f"{uuid=}")
-
-        mha_path = os.path.join(args.output_dir, f"{uuid}.mha")
-        logger.info(f"Creating mha file {mha_path}")
-        convert_nii_to_mha(image_path, mha_path)
-        assert os.path.exists(mha_path)
 
 
-def get_MSD_Spleen_file_list(args) -> List[List, List, List]:
-    """
-    Retrieves file lists for the MSD Spleen dataset.
-
-    Args:
-        args: Command-line arguments specifying input directory, split ratio, and random seed.
-
-    Returns:
-        Tuple containing lists of training and validation data dictionaries, each with "image" and "label" keys.
-    """
-    all_images = sorted(glob.glob(os.path.join(args.input_dir, "imagesTr", "*.nii.gz")))
-    all_labels = sorted(glob.glob(os.path.join(args.input_dir, "labelsTr", "*.nii.gz")))
-
-    data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(all_images, all_labels)]
-
-    train_data, val_data = partition_dataset(
-        data,
-        ratios=[args.split, (1 - args.split)],
-        shuffle=True,
-        seed=args.seed,
-    )
-    return train_data, val_data, []
 
 
-def get_AutoPET2_file_list(args) -> List[List, List, List]:
-    """
-    Retrieves file lists for the AutoPET2 dataset.
-
-    Args:
-        args: Command-line arguments specifying input directory, split ratio, and random seed.
-
-    Returns:
-        Tuple containing lists of training and validation data dictionaries, each with "image" and "label" keys.
-    """
-    all_images = []
-    all_labels = []
-
-    for root, _, files in os.walk(args.input_dir, followlinks=True):
-        for file in files:
-            if file.startswith("SUV") and file.endswith(".nii.gz"):
-                all_images.append(os.path.join(root, file))
-            if file.startswith("SEG") and file.endswith(".nii.gz"):
-                all_labels.append(os.path.join(root, file))
-
-    data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(all_images, all_labels)]
-
-    train_data, val_data = partition_dataset(
-        data,
-        ratios=[args.split, (1 - args.split)],
-        shuffle=True,
-        seed=args.seed,
-    )
-
-    return train_data, val_data, []
-
-
-def get_HECKTOR_file_list(args) -> List[List, List, List]:
-    """
-    Retrieves file lists for the HECKTOR dataset.
-
-    Args:
-        args: Command-line arguments specifying input directory, split ratio, and random seed.
-
-    Returns:
-        Tuple containing lists of training, validation, and test data dictionaries, each with "image" and "label" keys.
-    """
-    logger.warning("Run the resample2PET.py script before using HECKTOR. Different files have different spacings and I found no other way to deal with it..")
-
-    # Assuming this is the folder /lsdf/data/medical/HECKTOR/hecktor2022_training/
-    train_images = sorted(glob.glob(os.path.join(args.input_dir, "hecktor2022_training", "resampled", "*PT*.nii.gz")))
-    train_labels = sorted(glob.glob(os.path.join(args.input_dir, "hecktor2022_training", "resampled/labelsTr", "*.nii.gz")))
-
-    test_images = sorted(glob.glob(os.path.join(args.input_dir, "hecktor2022_testing", "imagesTs", "*.nii.gz")))
-
-    data = [{"image": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)]
-
-    logger.info(f"{data[-5:]=}")
-
-    train_data, val_data = partition_dataset(
-        data,
-        ratios=[args.split, (1 - args.split)],
-        shuffle=True,
-        seed=args.seed,
-    )
-
-    test_data = [{"image": image_name} for image_name in test_images]
-    return train_data, val_data, test_data
-
-
-def get_data(args):
+def get_data(args, image_type:str):
     """
     Retrieves data for training, validation, and testing based on the specified dataset in the command-line arguments.
 
@@ -843,19 +698,11 @@ def get_data(args):
     logger.info(f"{args.dataset=}")
 
     test_data = []
-    if args.dataset == "AutoPET":
-        train_data, val_data, test_data = get_AutoPET_file_list(args)
-    elif args.dataset == "AutoPET2_Challenge":
-        train_data, val_data, test_data = get_AutoPET2_Challenge_file_list(args)
-        return train_data, val_data, test_data
-    elif args.dataset == "MSD_Spleen":
-        train_data, val_data, test_data = get_MSD_Spleen_file_list(args)
-    elif args.dataset == "AutoPET2":
-        train_data, val_data, test_data = get_AutoPET2_file_list(args)
-    elif args.dataset == "HECKTOR":
-        train_data, val_data, test_data = get_HECKTOR_file_list(args)
-    elif args.dataset == "AMOS":
-        train_data, val_data, test_data = get_AMOS_file_list(args)
+
+    if args.dataset == "AMOS":
+        train_data, val_data, test_data = get_AMOS_file_list(args, image_type)
+        
+
 
 
     if args.train_on_all_samples:
@@ -905,7 +752,7 @@ def get_test_loader(args, pre_transforms_test):
     return test_loader
 
 
-def get_train_loader(args, pre_transforms_train):
+def get_train_loader(args, pre_transforms_train_ct, pre_transforms_train_mri):
     """
     Retrieves a DataLoader for training based on the specified command-line arguments and pre-transforms.
 
@@ -916,22 +763,32 @@ def get_train_loader(args, pre_transforms_train):
     Returns:
         DataLoader for training with asynchronous data loading using PersistentDataset and ThreadDataLoader.
     """
-    train_data, val_data, test_data = get_data(args)
-    total_l = len(train_data) + len(val_data)
+    train_data_ct, val_data_ct, test_data = get_data(args, 'CT')
+    train_data_mri, val_data_mri, test_data = get_data(args, 'MRI')
 
-    train_ds = PersistentDataset(train_data, pre_transforms_train, cache_dir=args.cache_dir)
+
+    total_l_ct = len(train_data_ct) + len(val_data_ct)
+    total_l_mri = len(train_data_mri) + len(val_data_mri)
+    total_l = total_l_ct + total_l_mri
+
+    train_ds_ct = PersistentDataset(train_data_ct, pre_transforms_train_ct, cache_dir=args.cache_dir)
+    train_ds_mri = PersistentDataset(train_data_mri, pre_transforms_train_mri, cache_dir=args.cache_dir)
+    alternatingSampler = AlternatingSampler(train_ds_ct, train_ds_mri)
+    train_ds = ConcatDataset([train_ds_mri, train_ds_ct])
+
     train_loader = ThreadDataLoader(
         train_ds,
-        shuffle=True,
+        shuffle=False,
+        sampler = alternatingSampler,
         num_workers=args.num_workers,
         batch_size=1,
     )
     logger.info("{} :: Total Records used for Training is: {}/{}".format(args.gpu, len(train_ds), total_l))
-
+    #print('type train loader', type(train_loader))
     return train_loader
 
 
-def get_val_loader(args, pre_transforms_val):
+def get_val_loader(args, pre_transforms_val_ct, pre_transforms_val_mri):
     """
     Retrieves a DataLoader for validation based on the specified command-line arguments and pre-transforms.
 
@@ -942,11 +799,19 @@ def get_val_loader(args, pre_transforms_val):
     Returns:
         DataLoader for validation with asynchronous data loading using PersistentDataset and ThreadDataLoader.
     """
-    train_data, val_data, test_data = get_data(args)
+    train_data_ct, val_data_ct, test_data = get_data(args, 'CT')
+    train_data_mri, val_data_mri, test_data = get_data(args, 'MRI')
 
-    total_l = len(train_data) + len(val_data)
 
-    val_ds = PersistentDataset(val_data, pre_transforms_val, cache_dir=args.cache_dir)
+    total_l_ct = len(train_data_ct) + len(val_data_ct)
+    total_l_mri = len(train_data_mri) + len(val_data_mri)
+    total_l = total_l_ct + total_l_mri
+
+
+    val_ds_ct = PersistentDataset(val_data_ct, pre_transforms_val_ct, cache_dir=args.cache_dir)
+    val_ds_mri = PersistentDataset(val_data_mri, pre_transforms_val_mri, cache_dir=args.cache_dir)
+    val_ds = ConcatDataset([val_ds_ct, val_ds_mri])
+
     val_loader = ThreadDataLoader(
         val_ds,
         num_workers=args.num_workers,

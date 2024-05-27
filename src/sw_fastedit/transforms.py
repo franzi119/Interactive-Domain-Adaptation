@@ -15,7 +15,9 @@ import gc
 import os
 import json
 import logging
+import re
 from typing import Dict, Hashable, List, Mapping, Tuple
+from copy import deepcopy
 
 import torch
 from scipy.ndimage import gaussian_filter
@@ -43,11 +45,14 @@ from monai.transforms.utils_pytorch_numpy_unification import concatenate
 from monai.utils.type_conversion import convert_to_dst_type
 from monai.transforms.utils import check_non_lazy_pending_ops
 from monai.transforms.utils_pytorch_numpy_unification import where
+from monai.transforms.utility.array import SplitDim
+from monai.transforms.traits import MultiSampleTrait
 import numpy as np
 
 
 
-from monai.utils.enums import CommonKeys
+from sw_fastedit.utils.enums import CommonKeys
+from sw_fastedit.utils.enums import GanKeys
 
 from sw_fastedit.click_definitions import LABELS_KEY, ClickGenerationStrategy
 from sw_fastedit.utils.distance_transform import get_random_choice_from_tensor, get_border_points_from_mask
@@ -99,7 +104,7 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
         label_key: str,
         background: int = 0,
         pert: float = 0.0,
-        sigma: Sequence[float] | float | Sequence[torch.Tensor] | torch.Tensor = 3.0,
+        sigma: Sequence[float] | float | Sequence[torch.Tensor] | torch.Tensor = 5.0,
         rescale_min: float = -1.0,
         rescale_max: float = 1.0,
         allow_missing_keys: bool = False,
@@ -280,7 +285,7 @@ class NormalizeLabelsInDatasetd(MapTransform):
         data[LABELS_KEY] = self.labels
 
         for key in self.key_iterator(data):
-            if key == "label":
+            if "label" in key:
                 try:
                     label = data[key]
                     if isinstance(label, str):
@@ -313,6 +318,29 @@ class NormalizeLabelsInDatasetd(MapTransform):
                 raise UserWarning("Only the key label is allowed here!")
         return data
 
+class AddMRIorCT():
+    def __init__(
+        self,
+        keys: KeysCollection
+    ):
+        self.keys = keys
+    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
+        d = dict(data)
+        #logger.info(f"image file name: {d['image_meta_dict']['filename_or_obj']}")
+        #logger.info(f"label file name: {d['label_meta_dict']['filename_or_obj']}")
+        numbers = re.findall(r'\d+', d['image_meta_dict']['filename_or_obj'])
+
+        # Get the last number
+        last_number = numbers[-1] if numbers else None
+
+        print(last_number)
+        if (int(last_number)>= 500):
+            d[GanKeys.GLABEL] = torch.zeros((1,1))
+        else:
+            d[GanKeys.GLABEL] = torch.ones((1,1))
+        return d
+
+
 class AddGuidanceSignald(MapTransform):
     def __init__(
         self,
@@ -343,6 +371,8 @@ class AddGuidanceSignald(MapTransform):
 
         if flag:
             signal = gaussian_filter(signal, sigma=self.sigma)
+            #print('min max signal',np.min(signal), np.max(signal))
+            #print('signal unique', np.unique(signal))
             signal = (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
         return torch.Tensor(signal)[None]
 
@@ -363,10 +393,12 @@ class AddGuidanceSignald(MapTransform):
                 #pos = self.signal(shape, guidance[0]).to(device=device)
                 #neg = self.signal(shape, guidance[1]).to(device=device)
                 result = torch.concat([img if isinstance(img, torch.Tensor) else torch.Tensor(img), res])
+                #print('result unique', torch.unique(result))
             else:
                 s = torch.zeros_like(img[0])[None]
                 result = torch.concat([img, s, s])
-            result = torch.round(result)
+            #result = torch.round(result)
+            
             d[key] = result
         return d
 
@@ -535,295 +567,97 @@ class AddGuidanceSignal(MapTransform):
                 raise UserWarning("This transform only applies to image key")
         raise UserWarning("image key has not been been found")
 
+class PrintShape(MapTransform):
 
-class FindDiscrepancyRegions(MapTransform):
-    """
-    Find discrepancy between prediction and actual during click interactions during training.
-
-    Args:
-        pred_key: key to prediction source.
-        discrepancy_key: key to store discrepancies found between label and prediction.
-        device: device this transform shall run on.
-    """
 
     def __init__(
         self,
-        keys: KeysCollection,
-        pred_key: str = "pred",
-        discrepancy_key: str = "discrepancy",
+        keys: KeysCollection = None,
         allow_missing_keys: bool = False,
-        device=None,
+        prev_transform: str = None
+
     ):
         super().__init__(keys, allow_missing_keys)
-        self.pred_key = pred_key
-        self.discrepancy_key = discrepancy_key
-        self.device = device
-
-    def disparity(self, label, pred):
-        disparity = label - pred
-        # +1 means predicted label is not part of the ground truth
-        # -1 means predicted label missed that region of the ground truth
-        pos_disparity = (disparity > 0).to(dtype=torch.float32, device=self.device)  # FN
-        neg_disparity = (disparity < 0).to(dtype=torch.float32, device=self.device)  # FP
-        return [pos_disparity, neg_disparity]
-
-    def _apply(self, label, pred):
-        return self.disparity(label, pred)
+        self.prev_transform = prev_transform
 
     @timeit
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        for key in self.key_iterator(data):
-            if key == "label":
-                assert (
-                    (type(data[key]) is torch.Tensor)
-                    or (type(data[key]) is MetaTensor)
-                    and (type(data[self.pred_key]) is torch.Tensor or type(data[self.pred_key]) is MetaTensor)
-                )
-                all_discrepancies = {}
-                assert data[key].is_cuda and data["pred"].is_cuda
-
-                for _, (label_key, label_value) in enumerate(data[LABELS_KEY].items()):
-                    if label_key != "background":
-                        label = torch.clone(data[key].detach())
-                        # Label should be represented in 1
-                        label[label != label_value] = 0
-                        label = (label > 0.5).to(dtype=torch.float32)
-
-                        # Taking single prediction
-                        pred = torch.clone(data[self.pred_key].detach())
-                        pred[pred != label_value] = 0
-                        # Prediction should be represented in one
-                        pred = (pred > 0.5).to(dtype=torch.float32)
-                    else:
-                        # Taking single label
-                        label = torch.clone(data[key].detach())
-                        label[label != label_value] = 1
-                        label = 1 - label
-                        # Label should be represented in 1
-                        label = (label > 0.5).to(dtype=torch.float32)
-                        # Taking single prediction
-                        pred = torch.clone(data[self.pred_key].detach())
-                        pred[pred != label_value] = 1
-                        pred = 1 - pred
-                        # Prediction should be represented in one
-                        pred = (pred > 0.5).to(dtype=torch.float32)
-                    all_discrepancies[label_key] = self._apply(label, pred)
-                data[self.discrepancy_key] = all_discrepancies
-                return data
-            else:
-                logger.error("This transform only applies to 'label' key")
-        raise UserWarning
-
-
-class AddGuidance(Randomizable, MapTransform):
-    """
-    Add guidance based on different click generation strategies.
-
-    Args:
-        discrepancy_key: key to discrepancy map between label and prediction shape (2, C, H, W, D) or (2, C, H, W)
-        probability_key: key to click/interaction probability, shape (1)
-        device: device this transform shall run on.
-        click_generation_strategy_key: sets the used ClickGenerationStrategy.
-        patch_size: Only relevant for the patch-based click generation strategy. Sets the size of the cropped patches
-        on which then further analysis is run.
-    """
-
-    def __init__(
-        self,
-        keys: KeysCollection,
-        discrepancy_key: str = "discrepancy",
-        probability_key: str = "probability",
-        allow_missing_keys: bool = False,
-        device=None,
-        click_generation_strategy_key: str = "click_generation_strategy",
-        patch_size: Tuple[int] = (128, 128, 128),
-        load_from_json: bool = False,
-        json_dir : str = None,
-    ):
-        super().__init__(keys, allow_missing_keys)
-        self.discrepancy_key = discrepancy_key
-        self.probability_key = probability_key
-        self._will_interact = None
-        self.is_other = None
-        self.default_guidance = None
-        self.device = device
-        self.click_generation_strategy_key = click_generation_strategy_key
-        self.patch_size = patch_size
-        self.load_from_json = load_from_json
-        self.json_dir = json_dir
-
-    def randomize(self, data: Mapping[Hashable, torch.Tensor]):
-        probability = data[self.probability_key]
-        self._will_interact = self.R.choice([True, False], p=[probability, 1.0 - probability])
-
-    def find_guidance(self, discrepancy) -> List[int | List[int]] | None:
-        assert discrepancy.is_cuda
-        distance = distance_transform_edt(discrepancy) 
-        t_index, t_value = get_random_choice_from_tensor(distance)
-        return t_index
-
-    def add_guidance_based_on_discrepancy(
-        self,
-        data: Dict,
-        guidance: torch.Tensor,
-        key_label: str,
-        coordinates: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        assert guidance.dtype == torch.int32
-        # Positive clicks of the segment in the iteration
-        discrepancy = data[self.discrepancy_key][key_label]
-        # idx 0 is positive discrepancy and idx 1 is negative discrepancy
-        pos_discr = discrepancy[0]
-
-        if coordinates is None:
-            # Add guidance to the current key label
-            if torch.sum(pos_discr) > 0:
-                tmp_gui = self.find_guidance(pos_discr)
-                self.check_guidance_length(data, tmp_gui)
-                if tmp_gui is not None:
-                    guidance = torch.cat(
-                        (
-                            guidance,
-                            torch.tensor([tmp_gui], dtype=torch.int32, device=guidance.device),
-                        ),
-                        0,
-                    )
-        else:
-            pos_discr = get_tensor_at_coordinates(pos_discr, coordinates=coordinates)
-            if torch.sum(pos_discr) > 0:
-                # TODO Add suport for 2d
-                tmp_gui = self.find_guidance(pos_discr)
-                if tmp_gui is not None:
-                    tmp_gui = get_global_coordinates_from_patch_coordinates(tmp_gui, coordinates)
-                    self.check_guidance_length(data, tmp_gui)
-                    guidance = torch.cat(
-                        (
-                            guidance,
-                            torch.tensor([tmp_gui], dtype=torch.int32, device=guidance.device),
-                        ),
-                        0,
-                    )
-        return guidance
-
-    def add_guidance_based_on_label(self, data, guidance, label):
-        assert guidance.dtype == torch.int32
-        # Add guidance to the current key label
-        if torch.sum(label) > 0:
-            assert label.is_cuda
-            # generate a random sample
-            tmp_gui_index, tmp_gui_value = get_random_choice_from_tensor(label)
-            if tmp_gui_index is not None:
-                self.check_guidance_length(data, tmp_gui_index)
-                guidance = torch.cat(
-                    (
-                        guidance,
-                        torch.tensor([tmp_gui_index], dtype=torch.int32, device=guidance.device),
-                    ),
-                    0,
-                )
-        return guidance
-
-    def check_guidance_length(self, data, new_guidance):
-        dimensions = 3 if len(data[CommonKeys.IMAGE].shape) > 3 else 2
-        if dimensions == 3:
-            assert len(new_guidance) == 4, f"len(new_guidance) is {len(new_guidance)}, new_guidance is {new_guidance}"
-        else:
-            assert len(new_guidance) == 3, f"len(new_guidance) is {len(new_guidance)}, new_guidance is {new_guidance}"
-
-    @timeit
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        click_generation_strategy = data[self.click_generation_strategy_key]
-
-        if self.load_from_json:
-            assert self.json_dir is not None
-
-            for idx, (key_label, _) in enumerate(data[LABELS_KEY].items()):
-                num_clicks = len(data[key_label]) + 1 if key_label in data.keys() else 1
-
-                im_fn = data['image_meta_dict']['filename_or_obj'].split('/')[-1]
-                json_fn = os.path.join(self.json_dir, im_fn.replace('.nii.gz', '_clicks.json'))
-                with open(json_fn, 'r') as f:
-                    json_data = json.load(f)
-                    json_data[key_label] = [[0] + el for el in json_data[key_label]]
-                    json_data[key_label] = json_data[key_label][:num_clicks]
-                data[key_label] = json_data[key_label]
-
-        elif click_generation_strategy == ClickGenerationStrategy.GLOBAL_NON_CORRECTIVE:
-            # uniform random sampling on label
-            for idx, (key_label, _) in enumerate(data[LABELS_KEY].items()):
-                tmp_gui = get_guidance_tensor_for_key_label(data, key_label, self.device)
-                data[key_label] = self.add_guidance_based_on_label(
-                    data, tmp_gui, data["label"].eq(idx).to(dtype=torch.int32)
-                )
-        elif (
-            click_generation_strategy == ClickGenerationStrategy.GLOBAL_CORRECTIVE
-            or click_generation_strategy == ClickGenerationStrategy.DEEPGROW_GLOBAL_CORRECTIVE
-        ):
-            if click_generation_strategy == ClickGenerationStrategy.DEEPGROW_GLOBAL_CORRECTIVE:
-                # sets self._will_interact
-                self.randomize(data)
-            else:
-                self._will_interact = True
-
-            if self._will_interact:
-                for key_label in data[LABELS_KEY].keys():
-                    tmp_gui = get_guidance_tensor_for_key_label(data, key_label, self.device)
-
-                    # Add guidance based on discrepancy
-                    data[key_label] = self.add_guidance_based_on_discrepancy(data, tmp_gui, key_label)
-        elif click_generation_strategy == ClickGenerationStrategy.PATCH_BASED_CORRECTIVE:
-            assert data[CommonKeys.LABEL].shape == data[CommonKeys.PRED].shape
-
-            t = [
-                Activationsd(keys="pred", softmax=True),
-                AsDiscreted(
-                    keys=("pred", "label"),
-                    argmax=(True, False),
-                    to_onehot=(len(data[LABELS_KEY]), len(data[LABELS_KEY])),
-                ),
-            ]
-            post_transform = Compose(t)
-            t_data = post_transform(data)
-
-            # Split the data into patches of size self.patch_size
-            # TODO not working for 2d data yet!
-            new_data = PatchIterd(keys=[CommonKeys.PRED, CommonKeys.LABEL], patch_size=self.patch_size)(t_data)
-            pred_list = []
-            label_list = []
-            coordinate_list = []
-
-            for patch in new_data:
-                actual_patch = patch[0]
-                pred_list.append(actual_patch[CommonKeys.PRED])
-                label_list.append(actual_patch[CommonKeys.LABEL])
-                coordinate_list.append(actual_patch["patch_coords"])
-
-            label_stack = torch.stack(label_list, 0)
-            pred_stack = torch.stack(pred_list, 0)
-
-            dice_loss = DiceLoss(include_background=True, reduction="none")
-            with torch.no_grad():
-                loss_per_label = dice_loss.forward(input=pred_stack, target=label_stack).squeeze()
-                assert len(loss_per_label.shape) == 2
-                # 1. dim: patch number, 2. dim: number of labels, e.g. [27,2]
-                max_loss_position_per_label = torch.argmax(loss_per_label, dim=0)
-                assert len(max_loss_position_per_label) == len(data[LABELS_KEY])
-
-            # We now have the worst patches for each label, now sample clicks on them
-            for idx, (key_label, _) in enumerate(data[LABELS_KEY].items()):
-                patch_number = max_loss_position_per_label[idx]
-                coordinates = coordinate_list[patch_number]
-
-                tmp_gui = get_guidance_tensor_for_key_label(data, key_label, self.device)
-                # Add guidance based on discrepancy
-                data[key_label] = self.add_guidance_based_on_discrepancy(data, tmp_gui, key_label, coordinates)
-
-            gc.collect()
-        else:
-            raise UserWarning("Unknown click strategy")
-
-
+        if self.keys != None:
+            for key in self.key_iterator(data):
+                print(key, self.prev_transform, data[key].shape)
+        #print(data.keys())
         return data
+    
+
+class SplitDimd(MapTransform, MultiSampleTrait):
+    backend = SplitDim.backend
+
+    def __init__(
+        self,
+        keys: KeysCollection,
+        output_postfixes: Sequence[str] | None = None,
+        dim: int = 0,
+        keepdim: bool = True,
+        update_meta: bool = True,
+        list_output: bool = False,
+        allow_missing_keys: bool = False,
+    ) -> None:
+        """
+        Args:
+            keys: keys of the corresponding items to be transformed.
+                See also: :py:class:`monai.transforms.compose.MapTransform`
+            output_postfixes: the postfixes to construct keys to store split data.
+                for example: if the key of input data is `pred` and split 2 classes, the output
+                data keys will be: pred_(output_postfixes[0]), pred_(output_postfixes[1])
+                if None, using the index number: `pred_0`, `pred_1`, ... `pred_N`.
+            dim: which dimension of input image is the channel, default to 0.
+            keepdim: if `True`, output will have singleton in the split dimension. If `False`, this
+                dimension will be squeezed.
+            update_meta: if `True`, copy `[key]_meta_dict` for each output and update affine to
+                reflect the cropped image
+            list_output: it `True`, the output will be a list of dictionaries with the same keys as original.
+            allow_missing_keys: don't raise exception if key is missing.
+        """
+        super().__init__(keys, allow_missing_keys)
+        self.output_postfixes = output_postfixes
+        self.splitter = SplitDim(dim, keepdim, update_meta)
+        self.list_output = list_output
+        if self.list_output is None and self.output_postfixes is not None:
+            raise ValueError("`output_postfixes` should not be provided when `list_output` is `True`.")
+
+    def __call__(
+        self, data: Mapping[Hashable, torch.Tensor]
+    ) -> dict[Hashable, torch.Tensor] | list[dict[Hashable, torch.Tensor]]:
+        d = dict(data)
+        all_keys = list(set(self.key_iterator(d)))
+        print('all keys', all_keys)
+
+        if self.list_output:
+            output = []
+            results = [self.splitter(d[key]) for key in all_keys]
+            for row in zip(*results):
+                new_dict = dict(zip(all_keys, row))
+                # fill in the extra keys with unmodified data
+                for k in set(d.keys()).difference(set(all_keys)):
+                    new_dict[k] = deepcopy(d[k])
+                output.append(new_dict)
+            return output
+
+        for key in all_keys:
+            rets = self.splitter(d[key])
+            postfixes: Sequence = list(range(len(rets))) if self.output_postfixes is None else self.output_postfixes
+            if len(postfixes) != len(rets):
+                raise ValueError(f"count of splits must match output_postfixes, {len(postfixes)} != {len(rets)}.")
+            for i, r in enumerate(rets):
+                split_key = f"{key}_{postfixes[i]}"
+                if split_key in d:
+                    raise RuntimeError(f"input data already contains key {split_key}.")
+                d[split_key] = r
+        return d
+
+
+
+
 
 
 class SplitPredsLabeld(MapTransform):

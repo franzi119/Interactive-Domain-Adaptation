@@ -29,6 +29,8 @@ from itertools import chain
 import cupy as cp
 import numpy as np
 import torch
+import torch.nn as nn
+from torch.utils.data import ConcatDataset
 from ignite.engine import Events
 from ignite.handlers import TerminateOnNan
 from monai.data import set_track_meta
@@ -48,13 +50,13 @@ from monai.handlers import (
 )
 from monai.inferers import SimpleInferer, SlidingWindowInferer
 from monai.losses import DiceCELoss, DiceLoss
-from sw_fastedit.dice_ce_l2 import DiceCeL2Loss
 from monai.metrics import MSEMetric
 from monai.metrics import SurfaceDiceMetric
 from monai.networks.nets.dynunet import DynUNet
 from monai.optimizers.novograd import Novograd
 from monai.transforms import Compose
 from monai.utils import set_determinism
+
 
 from sw_fastedit.data import (
     #get_click_transforms,
@@ -65,14 +67,17 @@ from sw_fastedit.data import (
     get_val_loader,
     get_test_loader,
 )
+from sw_fastedit.dice_ce_l2 import DiceCeL2Loss
+from sw_fastedit.discriminator import Discriminator
 from sw_fastedit.interaction import Interaction
 from sw_fastedit.utils.helper import count_parameters, is_docker, run_once, handle_exception
+from sw_fastedit.utils.handlers import own_from_engine
 
 logger = logging.getLogger("sw_fastedit")
 output_dir = None
 
 
-def get_optimizer(optimizer: str, lr: float, network):
+def get_optimizer(optimizer: str, lr: float, networks, discriminator:bool):
     """
     Get an optimizer for the given neural network.
 
@@ -88,7 +93,9 @@ def get_optimizer(optimizer: str, lr: float, network):
         # Get an Adam optimizer with a learning rate of 0.001 for a neural network
         optimizer = get_optimizer("Adam", 0.001, my_neural_network)
     """
-    all_params = chain(network[0].parameters(), network[1].parameters())
+    all_params = chain(networks[0].parameters(), networks[1].parameters())
+    if(discriminator):
+        all_params = chain(networks[2].parameters(), all_params)
     if optimizer == "Novograd":
         optimizer = Novograd(all_params, lr)
     elif optimizer == "Adam":
@@ -124,10 +131,12 @@ def get_loss_function(loss_args, loss_kwargs=None):
         loss_kwargs = {}
     if loss_args == "DiceCEL2Loss":
         loss_function = DiceCeL2Loss(to_onehot_y=True, softmax=True, **loss_kwargs)
+    if loss_args == "CrossEntropy":
+        loss_function = nn.BCEWithLogitsLoss()
     return loss_function
 
 
-def get_network(network_str: str, labels: Iterable, non_interactive: bool = False):
+def get_network(network_str: str, labels: Iterable, non_interactive: bool = False, discriminator: bool = False):
 
     """
     Get a network for semantic segmentation.
@@ -158,10 +167,10 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
 
     in_channels = 2 #1 for liver and 1 for extreme points (generated or interactive)
     out_channels = len(labels)
-    network = []
-
+    networks = []
+    
     if network_str == "dynunet":
-        network.append(DynUNet(
+        networks.append(DynUNet(
             spatial_dims=3,
             in_channels=1, #only extreme points
             out_channels=1,
@@ -172,7 +181,7 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
             deep_supervision=False,
             res_block=True,
         ))
-        network.append(DynUNet(
+        networks.append(DynUNet(
             spatial_dims=3,
             in_channels=2, #extreme point output + image
             out_channels=out_channels,
@@ -185,7 +194,7 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
         ))
 
     elif network_str == "smalldynunet":
-        network = DynUNet(
+        networks = DynUNet(
             spatial_dims=3,
             in_channels=in_channels,
             out_channels=out_channels,
@@ -197,7 +206,7 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
             res_block=True,
         )
     elif network_str == "bigdynunet":
-        network = DynUNet(
+        networks = DynUNet(
             spatial_dims=3,
             in_channels=in_channels,
             out_channels=out_channels,
@@ -208,12 +217,17 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
             deep_supervision=False,
             res_block=True,
         )
+    
+    parameters = count_parameters(networks[0])+count_parameters(networks[1])
+    if(discriminator):
+        networks.append(Discriminator(num_in_channels=2))
+        parameters+= count_parameters(networks[2])
 
-    logger.info(f"Selected network {network.__class__.__qualname__}")
-    logger.info(f"Number of parameters: {count_parameters(network[0])+count_parameters(network[1]):,}")
+    logger.info(f"Selected network {networks.__class__.__qualname__}")
+    logger.info(f"Number of parameters: {parameters:,}")
 
 
-    return network
+    return networks
 
 
 def get_inferers():
@@ -469,66 +483,66 @@ def get_additional_metrics(labels, include_background=False, loss_kwargs=None, s
     return additional_metrics
 
 
-def get_test_evaluator(
-    args,
-    networks,
-    inferer,
-    device,
-    val_loader,
-    post_transform,
-    resume_from="None",
-) -> SupervisedEvaluator:
-    """
-    Retrieves a supervised evaluator for testing in a MONAI training workflow.
+# def get_test_evaluator(
+#     args,
+#     networks,
+#     inferer,
+#     device,
+#     val_loader,
+#     post_transform,
+#     resume_from="None",
+# ) -> SupervisedEvaluator:
+#     """
+#     Retrieves a supervised evaluator for testing in a MONAI training workflow.
 
-    Args:
-        args: Command-line arguments and configuration settings.
-        network: The model to be evaluated.
-        inferer: The inference strategy or inferer.
-        device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
-        val_loader: The data loader for the validation/testing dataset.
-        post_transform: Post-processing transformation for the output predictions.
-        resume_from (str, optional): Path to a checkpoint file to resume training from (default is "None").
+#     Args:
+#         args: Command-line arguments and configuration settings.
+#         network: The model to be evaluated.
+#         inferer: The inference strategy or inferer.
+#         device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
+#         val_loader: The data loader for the validation/testing dataset.
+#         post_transform: Post-processing transformation for the output predictions.
+#         resume_from (str, optional): Path to a checkpoint file to resume training from (default is "None").
 
-    Returns:
-        SupervisedEvaluator: An instance of the supervised evaluator for testing.
+#     Returns:
+#         SupervisedEvaluator: An instance of the supervised evaluator for testing.
 
-    TODO Franzi:
-        # SupervisedEvaluator and Trainer originate from PyTorch Ignite
-    """
-    init(args)
+#     TODO Franzi:
+#         # SupervisedEvaluator and Trainer originate from PyTorch Ignite
+#     """
+#     init(args)
 
-    evaluator = SupervisedEvaluator(
-        device=device,
-        val_data_loader=val_loader,
-        networks=networks,
-        inferer=inferer,
-        postprocessing=post_transform,
-        amp=args.amp,
-        val_handlers=get_val_handlers(
-            sw_roi_size=args.sw_roi_size,
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
-            garbage_collector=(not args.non_interactive),
-        ),
-    )
+#     evaluator = SupervisedEvaluator(
+#         device=device,
+#         val_data_loader=val_loader,
+#         networks=networks,
+#         inferer=inferer,
+#         postprocessing=post_transform,
+#         amp=args.amp,
+#         val_handlers=get_val_handlers(
+#             sw_roi_size=args.sw_roi_size,
+#             inferer=args.inferer,
+#             gpu_size=args.gpu_size,
+#             garbage_collector=(not args.non_interactive),
+#         ),
+#     )
 
-    save_dict = {
-        "net": networks,
-    }
+#     save_dict = {
+#         "net": networks,
+#     }
 
-    if resume_from != "None":
-        logger.info(f"{args.gpu}:: Loading Network...")
-        logger.info(f"{save_dict.keys()=}")
-        logger.info(f"CWD: {os.getcwd()}")
-        map_location = device
-        checkpoint = torch.load(resume_from)
-        logger.info(f"{checkpoint.keys()=}")
-        networks.load_state_dict(checkpoint["net"]) 
-        handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
-        handler(evaluator)
+#     if resume_from != "None":
+#         logger.info(f"{args.gpu}:: Loading Network...")
+#         logger.info(f"{save_dict.keys()=}")
+#         logger.info(f"CWD: {os.getcwd()}")
+#         map_location = device
+#         checkpoint = torch.load(resume_from)
+#         logger.info(f"{checkpoint.keys()=}")
+#         networks.load_state_dict(checkpoint["net"]) 
+#         handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
+#         handler(evaluator)
 
-    return evaluator
+#     return evaluator
 
 
 def get_supervised_evaluator(
@@ -675,28 +689,41 @@ def get_trainer(
     init(args)
     device = torch.device(f"cuda:{args.gpu}") if not args.sw_cpu_output else "cpu"
     sw_device = torch.device(f"cuda:{args.gpu}")
-
-    pre_transforms_val = Compose(get_pre_transforms_val_as_list(args.labels, device, args))
+    pre_transforms_train_ct = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_ct', 'label'), image='image_ct', label='label'))
+    pre_transforms_train_mri = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_mri', 'label'), image='image_mri', label='label'))
+    #pre_transforms_train_mri
     if args.use_test_data_for_validation:
-        val_loader = get_test_loader(args, pre_transforms_val)
+        print('not implemented')
+        exit()
     else:
-        val_loader = get_val_loader(args, pre_transforms_val)
+        val_loader = get_val_loader(args, pre_transforms_val_ct=pre_transforms_train_ct, pre_transforms_val_mri=pre_transforms_train_mri)
+
+        #val_loader_mri = get_val_loader(args, pre_transforms_val, image_type='MRI')
+        #val_loader = ConcatDataset([val_loader_ct, val_loader_mri])
+
+
 
     #click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
-    post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
+    post_transform = None
+    #get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
 
-    networks = get_network(args.network, args.labels, args.non_interactive)
+    networks = get_network(args.network, args.labels, args.non_interactive, args.discriminator)
     networks[0] = networks[0].to(sw_device)
     networks[1] = networks[1].to(sw_device)
+    if(args.discriminator):
+        networks[2].to(sw_device)
     train_inferer, eval_inferer = get_inferers()
 
     loss_kwargs = {
         "squared_pred": (not args.loss_no_squared_pred),
         "include_background": (not args.loss_dont_include_background),
     }
-    loss_function= get_loss_function(loss_args=args.loss, loss_kwargs=loss_kwargs)
+    loss_functions = []
+    loss_functions.append(get_loss_function(loss_args=args.loss_seg, loss_kwargs=loss_kwargs))
+    loss_functions.append(get_loss_function(loss_args=args.loss_dis, loss_kwargs=loss_kwargs))
+
     
-    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
+    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks, args.discriminator)
     lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
 
     val_key_metric = get_key_metric(str_to_prepend="val_")
@@ -711,16 +738,22 @@ def get_trainer(
         inferer=eval_inferer,
         device=device,
         val_loader=val_loader,
-        loss_function=loss_function,
+        loss_function=loss_functions,
         #click_transforms=click_transforms,
         post_transform=post_transform,
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
     )
 
-    pre_transforms_train = Compose(get_pre_transforms_train_as_list(args.labels, device, args))
-    train_loader = get_train_loader(args, pre_transforms_train)
-    #print('length dataloader', le(train_loader))
+    pre_transforms_train_ct = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_ct', 'label'), image='image_ct', label='label'))
+    pre_transforms_train_mri = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_mri', 'label'), image='image_mri', label='label'))
+    #pre_transforms_train = Compose([pre_transforms_train_ct, pre_transforms_train_mri])
+    #pre_transforms_train = pre_transforms_train_mri
+    train_loader = get_train_loader(args, pre_transforms_train_ct=pre_transforms_train_ct, pre_transforms_train_mri=pre_transforms_train_mri)
+    #train_loader = train_loader_ct
+    #train_loader_mri = get_train_loader(args, pre_transforms_train_mri, 'MRI)
+    #train_loader = ConcatDataset([train_loader_ct, train_loader_mri])
+
     train_key_metric = get_key_metric(str_to_prepend="train_")
     train_additional_metrics = {}
     if args.additional_metrics:
@@ -752,7 +785,7 @@ def get_trainer(
             max_interactions=args.max_train_interactions,
             save_nifti=args.save_nifti,
             nifti_dir=args.data_dir,
-            loss_function=loss_function,
+            loss_function=loss_functions,
             nifti_post_transform=post_transform,
             click_generation_strategy=args.train_click_generation,
             stopping_criterion=args.train_click_generation_stopping_criterion,
@@ -765,7 +798,7 @@ def get_trainer(
         if not args.non_interactive
         else None,
         optimizer=optimizer,
-        loss_function=loss_function,
+        loss_function=loss_functions,
         inferer=train_inferer,
         postprocessing=post_transform,
         amp=args.amp,
