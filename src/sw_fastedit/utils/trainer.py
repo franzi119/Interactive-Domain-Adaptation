@@ -224,7 +224,7 @@ class SupervisedTrainer(Trainer):
         # Make sure the signal is empty in the first iteration assertion holds
         assert torch.sum(inputs[:, 1:, ...]) == 0
         keys = list(batchdata.keys())
-        print(keys)
+        #print(keys)
 
         if(keys[0]== 'image_mri'):
             logger.info(f"image file name: {batchdata['image_mri_meta_dict']['filename_or_obj']}")
@@ -238,7 +238,7 @@ class SupervisedTrainer(Trainer):
                 logger.warning("No valid labels for this sample (probably due to crop)")
 
 
-        def _calculate_discriminator_loss():
+        def _compute_discriminator_loss():
             if(keys[0]== 'image_mri'):
                 engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.REALS], engine.networks[2], *args, **kwargs)
                 loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.ones_like(engine.state.output[GanKeys.LATENTS]))
@@ -270,10 +270,8 @@ class SupervisedTrainer(Trainer):
 
             return loss
             
-        
-
-        def _compute_pred_loss(label_key):
-
+        def _compute_pred_loss():
+            label_key = 'label'
             engine.networks[0].train()
             engine.networks[1].train()
             
@@ -308,7 +306,8 @@ class SupervisedTrainer(Trainer):
             engine.state.output[label_key] = targets[:, 0:1]
             engine.state.output[Keys.PRED] = engine.inferer(inputs_img_ep, engine.networks[1], *args, **kwargs)
 
-            #concatenate extreme point pred and segmentation pred, should have 3 channels (1 output from ep and 2 from seg)
+            #concatenate extreme point pred and segmentation pred, should have 3 channels (1 output from ep and 2 from seg), 
+            #nedded as input for the loss class
             pred_seg_ep = torch.cat((engine.state.output[Keys.PRED], pred_ep), dim=1)
         
             engine.fire_event(IterationEvents.FORWARD_COMPLETED)
@@ -341,15 +340,15 @@ class SupervisedTrainer(Trainer):
 
         if engine.amp and engine.scaler is not None:
             with torch.cuda.amp.autocast(**engine.amp_kwargs):
-                _compute_pred_loss(keys[1])
-                _calculate_discriminator_loss()
+                _compute_pred_loss()
+                _compute_discriminator_loss()
 
             engine.scaler.step(engine.optimizer)
             engine.scaler.update()
            
         else:
-            _compute_pred_loss(keys[1])
-            _calculate_discriminator_loss()
+            _compute_pred_loss()
+            _compute_discriminator_loss()
             engine.optimizer.step()
         
         engine.fire_event(IterationEvents.MODEL_COMPLETED)  

@@ -17,18 +17,20 @@ import torch
 from torch.utils.data import DataLoader
 
 from monai.config import IgniteInfo, KeysCollection
-from monai.engines.utils import IterationEvents, default_metric_cmp_fn, default_prepare_batch
+from monai.engines.utils import IterationEvents, default_metric_cmp_fn
 from monai.engines.workflow import Workflow
 from monai.inferers import Inferer, SimpleInferer
 from monai.networks.utils import eval_mode, train_mode
 from monai.transforms import Transform
 from monai.utils import ForwardMode, ensure_tuple, min_version, optional_import
-from monai.utils.enums import CommonKeys as Keys
 from monai.utils.enums import EngineStatsKeys as ESKeys
 from monai.utils.module import look_up_option
 from monai.metrics import DiceMetric
 from monai.metrics import MSEMetric
 from monai.data import decollate_batch
+
+from sw_fastedit.utils.prepare_batch import default_prepare_batch
+from sw_fastedit.utils.enums import CommonKeys as Keys
 
 logger = logging.getLogger("sw_fastedit")
 
@@ -302,7 +304,13 @@ class SupervisedEvaluator(Evaluator):
         logger.info("labels.shape is {}".format(targets.shape))
         # Make sure the signal is empty in the first iteration assertion holds
         assert torch.sum(inputs[:, 1:, ...]) == 0
-        logger.info(f"image file name: {batchdata['image_meta_dict']['filename_or_obj']}")
+        keys = list(batchdata.keys())
+
+        if (keys[0] == 'image_mri'):
+            logger.info(f"image file name: {batchdata['image_mri_meta_dict']['filename_or_obj']}")
+        else:
+            logger.info(f"image file name: {batchdata['image_ct_meta_dict']['filename_or_obj']}")
+      
         logger.info(f"label file name: {batchdata['label_meta_dict']['filename_or_obj']}")
         #print('check labels', batchdata["label"].shape)
         for i in range(len(batchdata["label"])):
@@ -310,7 +318,10 @@ class SupervisedEvaluator(Evaluator):
                 logger.warning("No valid labels for this sample (probably due to crop)")
 
         # put iteration outputs into engine.state
-        engine.state.output = {Keys.IMAGE: inputs, Keys.LABEL: targets}
+        if keys[0]== 'image_mri':    
+            engine.state.output = {Keys.IMAGE_MRI: inputs, Keys.LABEL: targets}
+        else:
+            engine.state.output = {Keys.IMAGE_CT: inputs, Keys.LABEL: targets}
         inputs_seg_ep = torch.cat((inputs, targets[:,1:2]), dim=1) #image and generated ep as input
         #print("shape inputs_seg_ep", inputs_seg_ep.shape)
         
