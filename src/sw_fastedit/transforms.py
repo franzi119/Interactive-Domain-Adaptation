@@ -585,7 +585,25 @@ class PrintShape(MapTransform):
         if self.keys != None:
             for key in self.key_iterator(data):
                 print(key, self.prev_transform, data[key].shape)
-        #print(data.keys())
+        print(data.keys())
+        return data
+
+class PrintKeys(MapTransform):
+
+
+    def __init__(
+        self,
+        keys: KeysCollection = None,
+        allow_missing_keys: bool = False,
+        prev_transform: str = None
+
+    ):
+        super().__init__(keys, allow_missing_keys)
+        self.prev_transform = prev_transform
+
+    @timeit
+    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
+        print(data.keys())
         return data
     
 
@@ -630,7 +648,6 @@ class SplitDimd(MapTransform, MultiSampleTrait):
     ) -> dict[Hashable, torch.Tensor] | list[dict[Hashable, torch.Tensor]]:
         d = dict(data)
         all_keys = list(set(self.key_iterator(d)))
-        print('all keys', all_keys)
 
         if self.list_output:
             output = []

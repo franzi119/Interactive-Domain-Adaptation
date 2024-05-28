@@ -71,7 +71,6 @@ from sw_fastedit.dice_ce_l2 import DiceCeL2Loss
 from sw_fastedit.discriminator import Discriminator
 from sw_fastedit.interaction import Interaction
 from sw_fastedit.utils.helper import count_parameters, is_docker, run_once, handle_exception
-from sw_fastedit.utils.handlers import own_from_engine
 
 logger = logging.getLogger("sw_fastedit")
 output_dir = None
@@ -704,8 +703,7 @@ def get_trainer(
 
 
     #click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
-    post_transform = None
-    #get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
+    post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
 
     networks = get_network(args.network, args.labels, args.non_interactive, args.discriminator)
     networks[0] = networks[0].to(sw_device)

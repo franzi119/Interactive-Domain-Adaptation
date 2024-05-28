@@ -68,6 +68,7 @@ from sw_fastedit.transforms import (
     AddGuidanceSignald,
     AddMRIorCT,
     PrintShape,
+    PrintKeys,
     SplitDimd,
 )
 from sw_fastedit.utils.helper import convert_mha_to_nii, convert_nii_to_mha
@@ -397,7 +398,11 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
     t = [
         
 
-        SplitDimd(keys=('image'))
+        SplitDimd(keys=('image_mri'), allow_missing_keys=True)
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+
+        SplitDimd(keys=('image_ct'), allow_missing_keys=True)
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
@@ -405,10 +410,13 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-        #PrintShape(),
-        CopyItemsd(keys=("pred_seg", "pred_ep", "label_1", "label_0", "image_0"), times=1, names=("pred_seg_for_save", "pred_ep_for_save", "ep_for_save", "label_for_save", "image_for_save",))
+        CopyItemsd(keys=("pred", "pred_ep", "label_1", "label_0", "image_ct_0", "image_mri_0"), times=1,
+                    names=("pred_seg_for_save", "pred_ep_for_save", "ep_for_save", "label_for_save", "image_for_save", "image_for_save"), allow_missing_keys=True)
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+
+        #PrintKeys(),
+
         
         # Invertd(
         #     keys=("pred_seg_for_save", "label_for_save",),
@@ -425,6 +433,7 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         )
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+
         AsDiscreted(
             keys=("pred", "label"),
             argmax=(True, False),
@@ -441,6 +450,7 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         )
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+
         SaveImaged(
             keys=("pred_ep_for_save",),
             writer="ITKWriter",
@@ -452,6 +462,7 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         )
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+
         SaveImaged(
             keys=("label_for_save",),
             writer="ITKWriter",
@@ -463,6 +474,7 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         )
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+
         SaveImaged(
             keys=("ep_for_save",),
             writer="ITKWriter",
@@ -472,9 +484,9 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
             separate_folder=True,
             resample=False,
         )
-
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
+
         SaveImaged(
             keys=("image_for_save",),
             writer="ITKWriter",
@@ -486,7 +498,10 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         )
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
-        ToTensord(keys=("image", "label", "pred"), device=cpu_device),
+
+        ToTensord(keys=("image_ct", "image_mri", "label", "pred"), device=cpu_device, allow_missing_keys=True),
+
+        
     ]
     return Compose(t)
 
@@ -774,7 +789,7 @@ def get_train_loader(args, pre_transforms_train_ct, pre_transforms_train_mri):
     train_ds_ct = PersistentDataset(train_data_ct, pre_transforms_train_ct, cache_dir=args.cache_dir)
     train_ds_mri = PersistentDataset(train_data_mri, pre_transforms_train_mri, cache_dir=args.cache_dir)
     alternatingSampler = AlternatingSampler(train_ds_ct, train_ds_mri)
-    train_ds = ConcatDataset([train_ds_mri, train_ds_ct])
+    train_ds = ConcatDataset([train_ds_ct, train_ds_mri])
 
     train_loader = ThreadDataLoader(
         train_ds,
@@ -784,7 +799,6 @@ def get_train_loader(args, pre_transforms_train_ct, pre_transforms_train_mri):
         batch_size=1,
     )
     logger.info("{} :: Total Records used for Training is: {}/{}".format(args.gpu, len(train_ds), total_l))
-    #print('type train loader', type(train_loader))
     return train_loader
 
 
