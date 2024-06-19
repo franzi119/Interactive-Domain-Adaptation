@@ -344,11 +344,15 @@ class SupervisedEvaluator(Evaluator):
                 engine.state.output[Keys.LABEL] = targets[:, 0:1]
                 engine.state.output[Keys.PRED] = engine.inferer(inputs_seg_ep, engine.network[1], *args, **kwargs)
         #dm = DiceMetric(include_background=True, reduction="mean", get_not_nans=False)
-
         mse_metric = self.mse_metric(y_pred=engine.state.output['pred_ep'], y=targets[:, 1:2]).item()
         #print('dice metric ', y_pred=torch.argmax(engine.state.output[Keys.PRED], dim=1, keepdims=True), y=targets[:, 0:1]))
-           
-        pred = decollate_batch(torch.argmax(engine.state.output[Keys.PRED], dim=1, keepdims=True))
+        #segmentation mask
+        rounded_pred = torch.round(engine.state.output[Keys.PRED])
+        converted_pred = torch.where(rounded_pred > 0, torch.tensor(1), rounded_pred)
+        converted_pred = torch.where(converted_pred < 0, torch.tensor(0), converted_pred)
+
+        print('converted pred unique', torch.unique(converted_pred))
+        pred = decollate_batch(torch.argmax(rounded_pred, dim=1, keepdims=True))
         target = decollate_batch(targets[:, 0:1])
         dice_metric = self.dice_metric(y_pred=pred, y=target)
         logger.info(f'Dice Metric decollate: {dice_metric} MSE Metric: {mse_metric}')

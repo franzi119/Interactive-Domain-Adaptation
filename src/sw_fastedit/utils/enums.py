@@ -357,9 +357,11 @@ class GanKeys(StrEnum):
 
     """
 
+    IMG = 'image'
     REALS = "reals"
     FAKES = "fakes"
     LATENTS = "latents"
+    ADVLOSS = "adv_loss"
     GLOSS = "g_loss"
     DLOSS = "d_loss"
     GPRED = 'gpred'

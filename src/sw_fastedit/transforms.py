@@ -11,6 +11,53 @@
 
 from __future__ import annotations
 
+
+from pathlib import Path
+from typing import Callable
+import traceback
+import warnings
+
+import numpy as np
+import cv2
+import torch
+
+import monai
+from monai.data.meta_tensor import MetaTensor
+from monai.config import DtypeLike, KeysCollection
+from monai.data import image_writer
+from monai.data.image_reader import ImageReader
+from monai.transforms.io.array import LoadImage, SaveImage
+from monai.transforms.transform import MapTransform, Transform
+from monai.utils import GridSamplePadMode, ensure_tuple, ensure_tuple_rep
+from monai.utils.enums import PostFix
+from monai.data.folder_layout import default_name_formatter, FolderLayout, FolderLayoutBase
+
+
+from monai.config import DtypeLike, NdarrayOrTensor, PathLike
+from monai.data import image_writer
+from monai.data.folder_layout import FolderLayout, FolderLayoutBase, default_name_formatter
+from monai.data.image_reader import (
+    ImageReader,
+    ITKReader,
+    NibabelReader,
+    NrrdReader,
+    NumpyReader,
+    PILReader,
+    PydicomReader,
+)
+from monai.data.meta_tensor import MetaTensor
+from monai.data.utils import is_no_channel
+from monai.transforms.transform import Transform
+from monai.transforms.utility.array import EnsureChannelFirst
+from monai.utils import GridSamplePadMode
+from monai.utils import ImageMetaKey as Key
+from monai.utils import OptionalImportError, convert_to_dst_type, ensure_tuple, look_up_option, optional_import
+
+__all__ = ["LoadImaged", "LoadImageD", "LoadImageDict", "SaveImaged", "SaveImageD", "SaveImageDict"]
+
+DEFAULT_POST_FIX = PostFix.meta()
+
+
 import gc
 import os
 import json
@@ -18,6 +65,7 @@ import logging
 import re
 from typing import Dict, Hashable, List, Mapping, Tuple
 from copy import deepcopy
+from pydoc import locate
 
 import torch
 from scipy.ndimage import gaussian_filter
@@ -671,6 +719,391 @@ class SplitDimd(MapTransform, MultiSampleTrait):
                     raise RuntimeError(f"input data already contains key {split_key}.")
                 d[split_key] = r
         return d
+
+
+class SaveImagedSlices(MapTransform):
+    """
+    Dictionary-based wrapper of :py:class:`monai.transforms.SaveImage`.
+
+    Note:
+        Image should be channel-first shape: [C,H,W,[D]].
+        If the data is a patch of an image, the patch index will be appended to the filename.
+
+    Args:
+        keys: keys of the corresponding items to be transformed.
+            See also: :py:class:`monai.transforms.compose.MapTransform`
+        meta_keys: explicitly indicate the key of the corresponding metadata dictionary.
+            For example, for data with key ``image``, the metadata by default is in ``image_meta_dict``.
+            The metadata is a dictionary contains values such as ``filename``, ``original_shape``.
+            This argument can be a sequence of strings, mapped to the ``keys``.
+            If ``None``, will try to construct ``meta_keys`` by ``key_{meta_key_postfix}``.
+        meta_key_postfix: if ``meta_keys`` is ``None``, use ``key_{meta_key_postfix}`` to retrieve the metadict.
+        output_dir: output image directory.
+                    Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        output_postfix: a string appended to all output file names, default to ``trans``.
+                        Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        output_ext: output file extension name, available extensions: ``.nii.gz``, ``.nii``, ``.png``, ``.dcm``.
+                    Handled by ``folder_layout`` instead, if ``folder_layout`` not ``None``.
+        resample: whether to resample image (if needed) before saving the data array,
+            based on the ``spatial_shape`` (and ``original_affine``) from metadata.
+        mode: This option is used when ``resample=True``. Defaults to ``"nearest"``.
+            Depending on the writers, the possible options are:
+
+            - {``"bilinear"``, ``"nearest"``, ``"bicubic"``}.
+              See also: https://pytorch.org/docs/stable/nn.functional.html#grid-sample
+            - {``"nearest"``, ``"linear"``, ``"bilinear"``, ``"bicubic"``, ``"trilinear"``, ``"area"``}.
+              See also: https://pytorch.org/docs/stable/nn.functional.html#interpolate
+
+        padding_mode: This option is used when ``resample = True``. Defaults to ``"border"``.
+            Possible options are {``"zeros"``, ``"border"``, ``"reflection"``}
+            See also: https://pytorch.org/docs/stable/nn.functional.html#grid-sample
+        scale: {``255``, ``65535``} postprocess data by clipping to [0, 1] and scaling
+            [0, 255] (``uint8``) or [0, 65535] (``uint16``). Default is ``None`` (no scaling).
+        dtype: data type during resampling computation. Defaults to ``np.float64`` for best precision.
+            if None, use the data type of input data. To set the output data type, use ``output_dtype``.
+        output_dtype: data type for saving data. Defaults to ``np.float32``.
+        allow_missing_keys: don't raise exception if key is missing.
+        squeeze_end_dims: if True, any trailing singleton dimensions will be removed (after the channel
+            has been moved to the end). So if input is (C,H,W,D), this will be altered to (H,W,D,C), and
+            then if C==1, it will be saved as (H,W,D). If D is also 1, it will be saved as (H,W). If `false`,
+            image will always be saved as (H,W,D,C).
+        data_root_dir: if not empty, it specifies the beginning parts of the input file's
+            absolute path. It's used to compute ``input_file_rel_path``, the relative path to the file from
+            ``data_root_dir`` to preserve folder structure when saving in case there are files in different
+            folders with the same file names. For example, with the following inputs:
+
+            - input_file_name: ``/foo/bar/test1/image.nii``
+            - output_postfix: ``seg``
+            - output_ext: ``.nii.gz``
+            - output_dir: ``/output``
+            - data_root_dir: ``/foo/bar``
+
+            The output will be: ``/output/test1/image/image_seg.nii.gz``
+
+            Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        separate_folder: whether to save every file in a separate folder. For example: for the input filename
+            ``image.nii``, postfix ``seg`` and folder_path ``output``, if ``separate_folder=True``, it will be saved as:
+            ``output/image/image_seg.nii``, if ``False``, saving as ``output/image_seg.nii``. Default to ``True``.
+            Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        print_log: whether to print logs when saving. Default to ``True``.
+        output_format: an optional string to specify the output image writer.
+            see also: ``monai.data.image_writer.SUPPORTED_WRITERS``.
+        writer: a customised ``monai.data.ImageWriter`` subclass to save data arrays.
+            if ``None``, use the default writer from ``monai.data.image_writer`` according to ``output_ext``.
+            if it's a string, it's treated as a class name or dotted path;
+            the supported built-in writer classes are ``"NibabelWriter"``, ``"ITKWriter"``, ``"PILWriter"``.
+        output_name_formatter: a callable function (returning a kwargs dict) to format the output file name.
+            see also: :py:func:`monai.data.folder_layout.default_name_formatter`.
+            If using a custom ``folder_layout``, consider providing your own formatter.
+        folder_layout: A customized ``monai.data.FolderLayoutBase`` subclass to define file naming schemes.
+            if ``None``, uses the default ``FolderLayout``.
+        savepath_in_metadict: if ``True``, adds a key ``saved_to`` to the metadata, which contains the path
+            to where the input image has been saved.
+    """
+
+    def __init__(
+        self,
+        keys: KeysCollection,
+        meta_keys: KeysCollection | None = None,
+        meta_key_postfix: str = DEFAULT_POST_FIX,
+        output_dir: Path | str = "./",
+        output_postfix: str = "trans",
+        output_ext: str = ".nii.gz",
+        resample: bool = False,
+        mode: str = "nearest",
+        padding_mode: str = GridSamplePadMode.BORDER,
+        scale: int | None = None,
+        dtype: DtypeLike = np.float64,
+        output_dtype: DtypeLike | None = np.float32,
+        allow_missing_keys: bool = False,
+        squeeze_end_dims: bool = True,
+        data_root_dir: str = "",
+        separate_folder: bool = True,
+        print_log: bool = True,
+        output_format: str = "",
+        writer: type[image_writer.ImageWriter] | str | None = None,
+        output_name_formatter: Callable[[dict, Transform], dict] | None = None,
+        folder_layout: monai.data.FolderLayoutBase | None = None,
+        savepath_in_metadict: bool = False,
+    ) -> None:
+        super().__init__(keys, allow_missing_keys)
+        self.meta_keys = ensure_tuple_rep(meta_keys, len(self.keys))
+        self.meta_key_postfix = ensure_tuple_rep(meta_key_postfix, len(self.keys))
+        #self.output_postfix = output_postfix
+        #self.output_dir = os.path.join(output_dir, output_postfix)
+        self.separate_folder = separate_folder
+        self.saver = SaveImageSlices(
+            output_dir=output_dir,
+            output_postfix=output_postfix,
+            output_ext=output_ext,
+            resample=resample,
+            mode=mode,
+            padding_mode=padding_mode,
+            scale=scale,
+            dtype=dtype,
+            output_dtype=output_dtype,
+            squeeze_end_dims=squeeze_end_dims,
+            data_root_dir=data_root_dir,
+            separate_folder=separate_folder,
+            print_log=print_log,
+            output_format=output_format,
+            writer=writer,
+            output_name_formatter=output_name_formatter,
+            folder_layout=folder_layout,
+            savepath_in_metadict=savepath_in_metadict,
+        )
+
+    def set_options(self, init_kwargs=None, data_kwargs=None, meta_kwargs=None, write_kwargs=None):
+        self.saver.set_options(init_kwargs, data_kwargs, meta_kwargs, write_kwargs)
+        return self
+
+    def __call__(self, data):
+        d = dict(data)
+        #print('output_dir', self.output_dir)
+        #print('output_postfix', self.output_postfix)
+        for key, meta_key, meta_key_postfix in self.key_iterator(d, self.meta_keys, self.meta_key_postfix):
+            if meta_key is None and meta_key_postfix is not None:
+                meta_key = f"{key}_{meta_key_postfix}"
+            meta_data = d.get(meta_key) if meta_key is not None else None
+
+        
+            self.saver(img=d[key], meta_data=meta_data)
+        return d
+    
+
+
+class SaveImageSlices(Transform):
+    """
+    Save the image (in the form of torch tensor or numpy ndarray) and metadata dictionary into files.
+
+    The name of saved file will be `{input_image_name}_{output_postfix}{output_ext}`,
+    where the `input_image_name` is extracted from the provided metadata dictionary.
+    If no metadata provided, a running index starting from 0 will be used as the filename prefix.
+
+    Args:
+        output_dir: output image directory.
+        Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        output_postfix: a string appended to all output file names, default to `trans`.
+        Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        output_ext: output file extension name.
+        Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        output_dtype: data type (if not None) for saving data. Defaults to ``np.float32``.
+        resample: whether to resample image (if needed) before saving the data array,
+            based on the ``"spatial_shape"`` (and ``"original_affine"``) from metadata.
+        mode: This option is used when ``resample=True``. Defaults to ``"nearest"``.
+            Depending on the writers, the possible options are
+
+            - {``"bilinear"``, ``"nearest"``, ``"bicubic"``}.
+              See also: https://pytorch.org/docs/stable/nn.functional.html#grid-sample
+            - {``"nearest"``, ``"linear"``, ``"bilinear"``, ``"bicubic"``, ``"trilinear"``, ``"area"``}.
+              See also: https://pytorch.org/docs/stable/nn.functional.html#interpolate
+
+        padding_mode: This option is used when ``resample = True``. Defaults to ``"border"``.
+            Possible options are {``"zeros"``, ``"border"``, ``"reflection"``}
+            See also: https://pytorch.org/docs/stable/nn.functional.html#grid-sample
+        scale: {``255``, ``65535``} postprocess data by clipping to [0, 1] and scaling
+            [0, 255] (``uint8``) or [0, 65535] (``uint16``). Default is ``None`` (no scaling).
+        dtype: data type during resampling computation. Defaults to ``np.float64`` for best precision.
+            if ``None``, use the data type of input data. To set the output data type, use ``output_dtype``.
+        squeeze_end_dims: if ``True``, any trailing singleton dimensions will be removed (after the channel
+            has been moved to the end). So if input is (C,H,W,D), this will be altered to (H,W,D,C), and
+            then if C==1, it will be saved as (H,W,D). If D is also 1, it will be saved as (H,W). If ``False``,
+            image will always be saved as (H,W,D,C).
+        data_root_dir: if not empty, it specifies the beginning parts of the input file's
+            absolute path. It's used to compute ``input_file_rel_path``, the relative path to the file from
+            ``data_root_dir`` to preserve folder structure when saving in case there are files in different
+            folders with the same file names. For example, with the following inputs:
+
+            - input_file_name: ``/foo/bar/test1/image.nii``
+            - output_postfix: ``seg``
+            - output_ext: ``.nii.gz``
+            - output_dir: ``/output``
+            - data_root_dir: ``/foo/bar``
+
+            The output will be: ``/output/test1/image/image_seg.nii.gz``
+
+            Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        separate_folder: whether to save every file in a separate folder. For example: for the input filename
+            ``image.nii``, postfix ``seg`` and ``folder_path`` ``output``, if ``separate_folder=True``, it will be
+            saved as: ``output/image/image_seg.nii``, if ``False``, saving as ``output/image_seg.nii``.
+            Default to ``True``.
+            Handled by ``folder_layout`` instead, if ``folder_layout`` is not ``None``.
+        print_log: whether to print logs when saving. Default to ``True``.
+        output_format: an optional string of filename extension to specify the output image writer.
+            see also: ``monai.data.image_writer.SUPPORTED_WRITERS``.
+        writer: a customised ``monai.data.ImageWriter`` subclass to save data arrays.
+            if ``None``, use the default writer from ``monai.data.image_writer`` according to ``output_ext``.
+            if it's a string, it's treated as a class name or dotted path (such as ``"monai.data.ITKWriter"``);
+            the supported built-in writer classes are ``"NibabelWriter"``, ``"ITKWriter"``, ``"PILWriter"``.
+        channel_dim: the index of the channel dimension. Default to ``0``.
+            ``None`` to indicate no channel dimension.
+        output_name_formatter: a callable function (returning a kwargs dict) to format the output file name.
+            If using a custom ``monai.data.FolderLayoutBase`` class in ``folder_layout``, consider providing
+            your own formatter.
+            see also: :py:func:`monai.data.folder_layout.default_name_formatter`.
+        folder_layout: A customized ``monai.data.FolderLayoutBase`` subclass to define file naming schemes.
+            if ``None``, uses the default ``FolderLayout``.
+        savepath_in_metadict: if ``True``, adds a key ``"saved_to"`` to the metadata, which contains the path
+            to where the input image has been saved.
+    """
+
+    def __init__(
+        self,
+        output_dir: PathLike = "./",
+        output_postfix: str = "trans",
+        output_ext: str = ".nii.gz",
+        output_dtype: DtypeLike | None = np.float32,
+        resample: bool = False,
+        mode: str = "nearest",
+        padding_mode: str = GridSamplePadMode.BORDER,
+        scale: int | None = None,
+        dtype: DtypeLike = np.float64,
+        squeeze_end_dims: bool = True,
+        data_root_dir: PathLike = "",
+        separate_folder: bool = True,
+        print_log: bool = True,
+        output_format: str = "",
+        writer: type[image_writer.ImageWriter] | str | None = None,
+        channel_dim: int | None = 0,
+        output_name_formatter: Callable[[dict, Transform], dict] | None = None,
+        folder_layout: FolderLayoutBase | None = None,
+        savepath_in_metadict: bool = False,
+    ) -> None:
+        self.folder_layout: FolderLayoutBase
+        if folder_layout is None:
+            self.folder_layout = FolderLayout(
+                output_dir=output_dir,
+                postfix=output_postfix,
+                extension=output_ext,
+                parent=separate_folder,
+                makedirs=True,
+                data_root_dir=data_root_dir,
+            )
+        else:
+            self.folder_layout = folder_layout
+
+        self.fname_formatter: Callable
+        if output_name_formatter is None:
+            self.fname_formatter = default_name_formatter
+        else:
+            self.fname_formatter = output_name_formatter
+
+        self.output_ext = output_ext.lower() or output_format.lower()
+        if isinstance(writer, str):
+            writer_, has_built_in = optional_import("monai.data", name=f"{writer}")  # search built-in
+            if not has_built_in:
+                writer_ = locate(f"{writer}")  # search dotted path
+            if writer_ is None:
+                raise ValueError(f"writer {writer} not found")
+            writer = writer_
+        self.writers = image_writer.resolve_writer(self.output_ext) if writer is None else (writer,)
+        self.writer_obj = None
+
+        _output_dtype = output_dtype
+        if self.output_ext == ".png" and _output_dtype not in (np.uint8, np.uint16, None):
+            _output_dtype = np.uint8
+        if self.output_ext == ".dcm" and _output_dtype not in (np.uint8, np.uint16, None):
+            _output_dtype = np.uint8
+        self.init_kwargs = {"output_dtype": _output_dtype, "scale": scale}
+        self.data_kwargs = {"squeeze_end_dims": squeeze_end_dims, "channel_dim": channel_dim}
+        self.meta_kwargs = {"resample": resample, "mode": mode, "padding_mode": padding_mode, "dtype": dtype}
+        self.write_kwargs = {"verbose": print_log}
+        self._data_index = 0
+        self.savepath_in_metadict = savepath_in_metadict
+        self.output_dir = output_dir
+        self.output_postfix = output_postfix
+
+    def set_options(self, init_kwargs=None, data_kwargs=None, meta_kwargs=None, write_kwargs=None):
+        """
+        Set the options for the underlying writer by updating the `self.*_kwargs` dictionaries.
+
+        The arguments correspond to the following usage:
+
+            - `writer = ImageWriter(**init_kwargs)`
+            - `writer.set_data_array(array, **data_kwargs)`
+            - `writer.set_metadata(meta_data, **meta_kwargs)`
+            - `writer.write(filename, **write_kwargs)`
+
+        """
+        if init_kwargs is not None:
+            self.init_kwargs.update(init_kwargs)
+        if data_kwargs is not None:
+            self.data_kwargs.update(data_kwargs)
+        if meta_kwargs is not None:
+            self.meta_kwargs.update(meta_kwargs)
+        if write_kwargs is not None:
+            self.write_kwargs.update(write_kwargs)
+        return self
+
+    def __call__(self, img: torch.Tensor | np.ndarray, meta_data: dict | None = None):
+        """
+        Args:
+            img: target data content that save into file. The image should be channel-first, shape: `[C,H,W,[D]]`.
+            meta_data: key-value pairs of metadata corresponding to the data.
+        """
+        meta_data = img.meta if isinstance(img, MetaTensor) else meta_data
+        #print('img', img.shape)
+        kw = self.fname_formatter(meta_data, self)
+        filename = self.folder_layout.filename(**kw)
+        #print('kw', kw)
+        #print('filename', filename)
+        #print('output_dir', self.output_dir)
+        #print('output_postfix', self.output_postfix)
+        modified_path = filename.rsplit('/', 1)[0]
+        modified_path = os.path.join(modified_path, self.output_postfix)
+        #print('modiefied path', modified_path)
+        try:
+            os.makedirs(modified_path, exist_ok=True)
+            print(f"Directory created successfully: {modified_path}")
+        except Exception as e:
+            print(f"Error creating directory: {e}")
+
+        for i in range(img.shape[1]):
+            slice = img[0][i]*255
+            cv2.imwrite(os.path.join(modified_path, f'{i}_ep_slice_.png'), slice.detach().cpu().numpy().astype(np.uint8))
+
+
+        # if meta_data:
+        #     meta_spatial_shape = ensure_tuple(meta_data.get("spatial_shape", ()))
+        #     if len(meta_spatial_shape) >= len(img.shape):
+        #         self.data_kwargs["channel_dim"] = None
+        #     elif is_no_channel(self.data_kwargs.get("channel_dim")):
+        #         warnings.warn(
+        #             f"data shape {img.shape} (with spatial shape {meta_spatial_shape}) "
+        #             f"but SaveImage `channel_dim` is set to {self.data_kwargs.get('channel_dim')} no channel."
+        #         )
+
+
+        # for i in range(img[key].shape[2]):
+        #     slice = img[key][0][0][i]*255
+        #     cv2.imwrite(os.path.join(self.output_dir, self.output_postfix, '{i}_ep_slice_.png'), slice.detach().cpu().numpy().astype(np.uint8))
+
+        # err = []
+        # for writer_cls in self.writers:
+        #     try:
+        #         writer_obj = writer_cls(**self.init_kwargs)
+        #         writer_obj.set_data_array(data_array=img, **self.data_kwargs)
+        #         writer_obj.set_metadata(meta_dict=meta_data, **self.meta_kwargs)
+        #         writer_obj.write(filename, **self.write_kwargs)
+        #         self.writer_obj = writer_obj
+        #     except Exception as e:
+        #         err.append(traceback.format_exc())
+        #         logging.getLogger(self.__class__.__name__).debug(e, exc_info=True)
+        #         logging.getLogger(self.__class__.__name__).info(
+        #             f"{writer_cls.__class__.__name__}: unable to write {filename}.\n"
+        #         )
+        #     else:
+        #         self._data_index += 1
+        #         if self.savepath_in_metadict and meta_data is not None:
+        #             meta_data["saved_to"] = filename
+        #         return img
+        # msg = "\n".join([f"{e}" for e in err])
+        # raise RuntimeError(
+        #     f"{self.__class__.__name__} cannot find a suitable writer for {filename}.\n"
+        #     "    Please install the writer libraries, see also the installation instructions:\n"
+        #     "    https://docs.monai.io/en/latest/installation.html#installing-the-recommended-dependencies.\n"
+        #     f"   The current registered writers for {self.output_ext}: {self.writers}.\n{msg}"
+        # )
 
 
 

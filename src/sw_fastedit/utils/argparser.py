@@ -189,7 +189,7 @@ def parse_args():
     parser.add_argument("--json_dir", type=str, default=None)
 
     # Discriminator
-    parser.add_argument("--discriminator", default=True, action="store_true")
+    parser.add_argument("-nd", "--no_discriminator", default=False, action="store_true")
 
 
     # Guidance Signal Hyperparameters
@@ -232,7 +232,22 @@ def setup_environment_and_adapt_args(args):
 
     device = torch.device(f"cuda:{args.gpu}")
     
-    args.labels = {"liver": 6, "background": 0}
+    args.labels = {"liver": 10, "background": 0}
+    #1 spleen
+    #2 right kidney
+    #3 left kidney
+    #4 gall bladder
+    #5 esophagus
+    #6 liver
+    #7 stomach
+    #8 aorta
+    #9 postcava
+    #10 pancreas
+    #11 right adrenal gland
+    #12 left adrenal gland
+    #13 duodenum
+    #14 bladder
+    #15 prostate/ uterus
 
     if not args.dont_check_output_dir and os.path.isdir(args.output_dir):
         raise UserWarning(

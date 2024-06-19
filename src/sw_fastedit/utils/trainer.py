@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING, Any, Callable, Iterable, Sequence
 import logging
 import torch
 import numpy as np
+import matplotlib.pyplot as plt
 from monai.transforms import Compose, SaveImaged, SplitDimd
 from torch.optim.optimizer import Optimizer
 from torch.utils.data import DataLoader
@@ -25,7 +26,8 @@ from monai.engines.utils import IterationEvents, default_make_latent, default_me
 from monai.engines.workflow import Workflow
 from monai.inferers import Inferer, SimpleInferer
 from monai.transforms import Transform
-from monai.utils import GanKeys, min_version, optional_import
+from monai.utils import min_version, optional_import
+from sw_fastedit.utils.enums import GanKeys
 from sw_fastedit.utils.enums import CommonKeys as Keys
 from sw_fastedit.utils.enums import EngineStatsKeys as ESKeys
 from sw_fastedit.utils.prepare_batch import default_prepare_batch
@@ -159,6 +161,7 @@ class SupervisedTrainer(Trainer):
         optim_set_to_none: bool = False,
         to_kwargs: dict | None = None,
         amp_kwargs: dict | None = None,
+        no_discriminator: bool = False,
     ) -> None:
         super().__init__(
             device=device,
@@ -187,6 +190,7 @@ class SupervisedTrainer(Trainer):
         self.inferer = SimpleInferer() if inferer is None else inferer
         self.optim_set_to_none = optim_set_to_none
         self.loss_discriminator = {}
+        self.no_discriminator = no_discriminator
 
 
 
@@ -218,6 +222,20 @@ class SupervisedTrainer(Trainer):
             kwargs: dict = {}
         else:
             inputs, targets, args, kwargs = batch
+        
+        #def save_ep_label():
+            print('ep values unique', torch.unique(targets[:, 1:2]))
+            targets_no_zeros = targets[:, 1:2][targets[:, 1:2] != 0]
+            print('ep values unique no zeros', torch.unique(targets_no_zeros))
+            plt.hist(targets_no_zeros.flatten().cpu().numpy(), bins=100, range=(-1,1))
+            plt.savefig('/cvhci/temp/frseiz/data_output/ep_network/test_threshold/histogram_label_ep.png')
+            import cv2
+            print('shape', targets[:, 1:2].shape)
+            for i in range(targets[:, 1:2].shape[2]):
+                slice = targets[0][1][i]*255
+                print(slice.shape)
+                cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/slices_label/ep_slice_{i}.png', slice.cpu().numpy().astype(np.uint8))
+            exit()
 
         logger.info("inputs.shape is {}".format(inputs.shape))
         logger.info("labels.shape is {}".format(targets.shape))
@@ -239,21 +257,37 @@ class SupervisedTrainer(Trainer):
 
 
         def _compute_discriminator_loss():
+            engine.networks[2].train()
+            engine.networks[2].zero_grad()
             if(keys[0]== 'image_mri'):
-                engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.REALS], engine.networks[2], *args, **kwargs)
-                loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.ones_like(engine.state.output[GanKeys.LATENTS]))
+                #target dataset is mri
+                engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.IMG], engine.networks[2], *args, **kwargs)
+                engine.fire_event(IterationEvents.FORWARD_COMPLETED)
+                loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.zeros_like(engine.state.output[GanKeys.LATENTS]))
+                engine.fire_event(IterationEvents.LOSS_COMPLETED)
                 self.loss_discriminator['loss_mri'] = loss
                 print('image mri loss', loss.item())
+                #compute adversarial loss for backpropagation of segmentation and ep network (0 for fakes/target dataset)
+                #engine.state.output[GanKeys.ADVLOSS] = 0
+        
             else: 
-                engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.FAKES], engine.networks[2], *args, **kwargs)
-                loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.zeros_like(engine.state.output[GanKeys.LATENTS]))
+                #source dataset is ct
+                engine.state.output[GanKeys.LATENTS] = engine.inferer(engine.state.output[GanKeys.IMG], engine.networks[2], *args, **kwargs)
+                engine.fire_event(IterationEvents.FORWARD_COMPLETED)
+                loss = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.ones_like(engine.state.output[GanKeys.LATENTS]))
+                engine.fire_event(IterationEvents.LOSS_COMPLETED)
                 self.loss_discriminator['loss_ct'] = loss
                 print('image ct loss', loss.item())
-            
+                
+                #compute adversarial loss for backpropagation of segmentation and ep network
+                #engine.state.output[GanKeys.ADVLOSS] = engine.loss_function[1](engine.state.output[GanKeys.LATENTS], torch.ones_like(engine.state.output[GanKeys.LATENTS]))
+
+        
+
             #print(self.loss_discriminator)
             if 'loss_mri' in self.loss_discriminator and 'loss_ct' in self.loss_discriminator:
-                engine.networks[2].train()
-                engine.networks[2].zero_grad()
+
+
                 for param in engine.networks[0].parameters():
                     param.requires_grad = False
                 for param in engine.networks[1].parameters():
@@ -262,23 +296,94 @@ class SupervisedTrainer(Trainer):
                     param.requires_grad = True
                 engine.state.output[GanKeys.DLOSS] = self.loss_discriminator['loss_mri'] + self.loss_discriminator['loss_ct']
                 print('loss discriminator', engine.state.output[GanKeys.DLOSS].item())
-                engine.scaler.scale(engine.state.output[GanKeys.DLOSS]).backward()
+                engine.scaler.scale(engine.state.output[GanKeys.DLOSS]).backward(retain_graph=True)
                 engine.fire_event(IterationEvents.BACKWARD_COMPLETED)
                 del self.loss_discriminator['loss_mri'], self.loss_discriminator['loss_ct']
-            
-            print('')
 
             return loss
             
-        def _compute_pred_loss():
-            label_key = 'label'
+            
+        def _forward_seg_ep():
             engine.networks[0].train()
             engine.networks[1].train()
             
-
             #engine.optimizer.zero_grad(set_to_none=engine.optim_set_to_none)
             engine.networks[0].zero_grad()
             engine.networks[1].zero_grad()
+
+            if keys[0]== 'image_mri':    
+                engine.state.output = {Keys.IMAGE_MRI: inputs, Keys.LABEL: targets}
+            else:
+                engine.state.output = {Keys.IMAGE_CT: inputs, Keys.LABEL: targets}
+            
+            engine.state.output = {} 
+            #first network prediction ep
+            engine.state.output[Keys.PRED] = engine.inferer(inputs, engine.networks[0], *args, **kwargs) 
+            
+            #concatenate output from first network (ep_pred) and image as input for second network
+            inputs_img_ep = torch.cat((inputs, engine.state.output[Keys.PRED]), dim=1) 
+           
+            engine.state.output[Keys.PRED_EP] = engine.state.output[Keys.PRED]
+           
+            def save_ep_pred():
+                print("")
+                import cv2
+                import matplotlib.pyplot as plt
+                print('ep pred values unique', torch.unique(pred_ep))
+                #save histogram of ep values
+                tensor_flat = pred_ep[0][0].cpu().detach().flatten().numpy()
+                plt.hist(tensor_flat, bins=100, range=(-1,1))
+                plt.savefig('/cvhci/temp/frseiz/data_output/ep_network/test_threshold/histogram_pred.png')
+                hist = cv2.calcHist([tensor_flat], [0], None, [256], [float(tensor_flat.min()), float(tensor_flat.max())])            
+                cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_save_pred/histogram', hist)
+                #exit()
+
+                for i in range(pred_ep.shape[2]):
+                    slice = pred_ep[0][0][i]*255
+                    print('pred ep', torch.unique(pred_ep[0][0][i]))
+                    print('slice unique', np.unique(slice))
+                    slice_threshold_55 = torch.where(slice > 55, slice, torch.tensor(0.0))
+                    slice_threshold_60 = torch.where(slice > 60, slice, torch.tensor(0.0))
+                    # slice_threshold_100 = (slice > 100).astype(np.uint8)*255
+                    # slice_threshold_75 = (slice > 75).astype(np.uint8)*255
+                    # slice_threshold_50 = (slice > 50).astype(np.uint8)*255
+                    # slice_threshold_25 = (slice > 25).astype(np.uint8)*255
+                    # slice_threshold_0 = (slice > 0).astype(np.uint8)*255
+
+
+                    #print(i, 'slice threshold unique', np.unique(slice_threshold))
+
+                    #print(slice_threshold.shape)
+                    cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/55_slices_pred_threshold/ep_slice_{i}.png', slice_threshold_55.detach().cpu().numpy().astype(np.uint8))
+                    cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/60_slices_pred_threshold/ep_slice_{i}.png', slice_threshold_60.detach().cpu().numpy().astype(np.uint8))
+                    #cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/50_slices_pred_threshold/ep_slice_{i}.png', slice_threshold_50)
+                    #cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/25_slices_pred_threshold/ep_slice_{i}.png', slice_threshold_25)
+                    #cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/0_slices_pred_threshold/ep_slice_{i}.png', slice_threshold_0)
+
+                    cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/slices_pred/ep_slice_{i}.png', slice.detach().cpu().numpy().astype(np.uint8))
+
+                    # cv2.imshow(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/slices/ep_slice_{i}', slice_threshold)
+                    # cv2.waitKey(0)
+
+            #second network prediction of segementation
+            engine.state.output[Keys.PRED] = engine.inferer(inputs_img_ep, engine.networks[1], *args, **kwargs)
+           
+            engine.fire_event(IterationEvents.FORWARD_COMPLETED)
+        
+            #postprocessing, try with threshold between 0.05 and 0.25 (maybe 0.3)
+            pred_ep_processed = torch.where(engine.state.output[Keys.PRED_EP] > 0.1, engine.state.output[Keys.PRED_EP], torch.tensor(0.0)) 
+
+            engine.state.output[Keys.PRED_SEG_EP] = torch.cat((engine.state.output[Keys.PRED], pred_ep_processed), dim=1)
+
+            engine.state.output['pred_ep_processed'] = pred_ep_processed
+
+            #error in library if removed
+            engine.state.output[Keys.LABEL] = targets 
+           
+            engine.state.output[GanKeys.IMG] = engine.state.output[Keys.PRED_SEG_EP]
+
+
+        def _compute_loss_seg_ep_adv():
             for param in engine.networks[0].parameters():
                 param.requires_grad = True
             for param in engine.networks[1].parameters():
@@ -286,45 +391,26 @@ class SupervisedTrainer(Trainer):
             for param in engine.networks[2].parameters():
                 param.requires_grad = False
 
-            if keys[0]== 'image_mri':    
-                engine.state.output = {Keys.IMAGE_MRI: inputs, Keys.LABEL: targets}
+            if keys[0] == 'image_mri' and not self.no_discriminator:
+                engine.state.output[Keys.LOSS] = engine.loss_function[0](input = engine.state.output[Keys.PRED_SEG_EP], 
+                                                                         target = targets, 
+                                                                         input_adv = engine.state.output[GanKeys.LATENTS], 
+                                                                         target_adv = torch.ones_like(engine.state.output[GanKeys.LATENTS]),
+                                                                         no_discriminator = self.no_discriminator).mean()
             else:
-                engine.state.output = {Keys.IMAGE_CT: inputs, Keys.LABEL: targets}
-
-            engine.state.output = {} 
-            #first network prediction ep (set correct label for ep)
-            engine.state.output[label_key] = targets[:, 1:2]
-            engine.state.output[Keys.PRED] = engine.inferer(inputs, engine.networks[0], *args, **kwargs) 
-            
-            #concatenate output from first network (ep_pred) and image as input for second network
-            inputs_img_ep = torch.cat((inputs, engine.state.output[Keys.PRED]), dim=1) 
-           
-            #store extreme point prediction
-            pred_ep = engine.state.output[Keys.PRED]
-
-            #second network prediction set correct labels for segmentation
-            engine.state.output[label_key] = targets[:, 0:1]
-            engine.state.output[Keys.PRED] = engine.inferer(inputs_img_ep, engine.networks[1], *args, **kwargs)
-
-            #concatenate extreme point pred and segmentation pred, should have 3 channels (1 output from ep and 2 from seg), 
-            #nedded as input for the loss class
-            pred_seg_ep = torch.cat((engine.state.output[Keys.PRED], pred_ep), dim=1)
-        
-            engine.fire_event(IterationEvents.FORWARD_COMPLETED)
-            engine.state.output[Keys.LOSS] = engine.loss_function[0](pred_seg_ep, targets).mean()
+                engine.state.output[Keys.LOSS] = engine.loss_function[0](input = engine.state.output[Keys.PRED_SEG_EP], 
+                                                                         target = targets, 
+                                                                         input_adv = 0, 
+                                                                         target_adv = 0,
+                                                                         no_discriminator = self.no_discriminator).mean()
             engine.fire_event(IterationEvents.LOSS_COMPLETED)
 
-            #set pred to pred from first and second network targets back to both extreme points and segmentation
-            engine.state.output['pred_ep'] = pred_ep
-            engine.state.output[label_key] = targets 
-            if keys[0] == 'image_mri':
-                engine.state.output[GanKeys.REALS] = engine.state.output[Keys.PRED]
+            if not self.no_discriminator:
+                engine.scaler.scale(engine.state.output[Keys.LOSS]).backward(retain_graph=True)
             else:
-                engine.state.output[GanKeys.FAKES] = engine.state.output[Keys.PRED]
-
-            engine.scaler.scale(engine.state.output[Keys.LOSS]).backward(retain_graph=True)
+                engine.scaler.scale(engine.state.output[Keys.LOSS]).backward()
             engine.fire_event(IterationEvents.BACKWARD_COMPLETED)
-        
+            
 
         #set networks to training mode
 
@@ -340,19 +426,23 @@ class SupervisedTrainer(Trainer):
 
         if engine.amp and engine.scaler is not None:
             with torch.cuda.amp.autocast(**engine.amp_kwargs):
-                _compute_pred_loss()
-                _compute_discriminator_loss()
-
+                _forward_seg_ep()
+                if not self.no_discriminator:
+                    _compute_discriminator_loss()
+                _compute_loss_seg_ep_adv()
             engine.scaler.step(engine.optimizer)
             engine.scaler.update()
            
         else:
-            _compute_pred_loss()
-            _compute_discriminator_loss()
+            _forward_seg_ep()
+            if not self.no_discriminator:
+                _compute_discriminator_loss()
+            _compute_loss_seg_ep_adv()
+
             engine.optimizer.step()
         
         engine.fire_event(IterationEvents.MODEL_COMPLETED)  
-        
+
         return engine.state.output
 
 

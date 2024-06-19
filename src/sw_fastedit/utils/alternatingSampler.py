@@ -11,17 +11,16 @@ class AlternatingSampler(Sampler):
         indices1 = torch.randperm(len(self.dataset1)).tolist()
         #add length of first dataset to the second one to avoid overlapping indices
         indices2 = (torch.randperm(len(self.dataset2))+len(self.dataset1)).tolist()
-        #print(indices1)
-        temp2 = indices2.copy()
-        #print(temp2)
 
+        j,k=0,0
         for i in range(self.epoch_length):
             if i % 2 == 0:
-                yield indices1.pop(0)
+                yield indices1[j]
+                j = j + 1
             else:
-                if(len(temp2) == 0):
-                    temp2 = indices2
-                yield temp2.pop(0)
+                yield indices2[k%len(indices2)]
+                #print('k moduo len',k%len(indices2))
+                k = k + 1
 
     def __len__(self):
         return self.epoch_length

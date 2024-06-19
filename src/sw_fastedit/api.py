@@ -35,7 +35,7 @@ from ignite.engine import Events
 from ignite.handlers import TerminateOnNan
 from monai.data import set_track_meta
 from sw_fastedit.utils.trainer import SupervisedTrainer
-from sw_fastedit.utils.evalutaor import SupervisedEvaluator
+from sw_fastedit.utils.evaluator import SupervisedEvaluator
 from sw_fastedit.utils.validation_handler import ValidationHandler
 from monai.engines import EnsembleEvaluator
 from monai.handlers import (
@@ -76,7 +76,7 @@ logger = logging.getLogger("sw_fastedit")
 output_dir = None
 
 
-def get_optimizer(optimizer: str, lr: float, networks, discriminator:bool):
+def get_optimizer(optimizer: str, lr: float, networks):
     """
     Get an optimizer for the given neural network.
 
@@ -92,9 +92,8 @@ def get_optimizer(optimizer: str, lr: float, networks, discriminator:bool):
         # Get an Adam optimizer with a learning rate of 0.001 for a neural network
         optimizer = get_optimizer("Adam", 0.001, my_neural_network)
     """
-    all_params = chain(networks[0].parameters(), networks[1].parameters())
-    if(discriminator):
-        all_params = chain(networks[2].parameters(), all_params)
+    all_params = chain(networks[0].parameters(), networks[1].parameters(), networks[2].parameters())
+
     if optimizer == "Novograd":
         optimizer = Novograd(all_params, lr)
     elif optimizer == "Adam":
@@ -132,10 +131,11 @@ def get_loss_function(loss_args, loss_kwargs=None):
         loss_function = DiceCeL2Loss(to_onehot_y=True, softmax=True, **loss_kwargs)
     if loss_args == "CrossEntropy":
         loss_function = nn.BCEWithLogitsLoss()
+
     return loss_function
 
 
-def get_network(network_str: str, labels: Iterable, non_interactive: bool = False, discriminator: bool = False):
+def get_network(network_str: str, labels: Iterable, non_interactive: bool = False, no_discriminator: bool = False):
 
     """
     Get a network for semantic segmentation.
@@ -218,8 +218,8 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
         )
     
     parameters = count_parameters(networks[0])+count_parameters(networks[1])
-    if(discriminator):
-        networks.append(Discriminator(num_in_channels=2))
+    networks.append(Discriminator(num_in_channels=3))
+    if(no_discriminator):
         parameters+= count_parameters(networks[2])
 
     logger.info(f"Selected network {networks.__class__.__qualname__}")
@@ -705,10 +705,10 @@ def get_trainer(
     #click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
     post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
 
-    networks = get_network(args.network, args.labels, args.non_interactive, args.discriminator)
+    networks = get_network(args.network, args.labels, args.non_interactive, args.no_discriminator)
     networks[0] = networks[0].to(sw_device)
     networks[1] = networks[1].to(sw_device)
-    if(args.discriminator):
+    if(not args.no_discriminator):
         networks[2].to(sw_device)
     train_inferer, eval_inferer = get_inferers()
 
@@ -721,7 +721,7 @@ def get_trainer(
     loss_functions.append(get_loss_function(loss_args=args.loss_dis, loss_kwargs=loss_kwargs))
 
     
-    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks, args.discriminator)
+    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
     lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
 
     val_key_metric = get_key_metric(str_to_prepend="val_")
@@ -803,6 +803,7 @@ def get_trainer(
         key_train_metric=train_key_metric,
         additional_metrics=train_additional_metrics,
         train_handlers=train_handlers,
+        no_discriminator=args.no_discriminator,
     )
 
     if not args.eval_only:
@@ -810,6 +811,7 @@ def get_trainer(
                 "trainer": trainer,
                 "net_ep": networks[0],
                 "net_seg": networks[1],
+                "net_dis": networks[2],
                 "opt": optimizer,
                 "lr": lr_scheduler,
             }
@@ -817,12 +819,14 @@ def get_trainer(
         save_dict = {
             "net_ep": networks[0],
             "net_seg": networks[1],
+            "net_dis": networks[2],
         }
 
     if ensemble_mode:
         save_dict = {
             "net_ep": networks[0],
             "net_seg": networks[1],
+            "net_dis": networks[2],
         }
 
     if not ensemble_mode:
@@ -851,6 +855,8 @@ def get_trainer(
             save_key_metric=True,
             file_prefix=file_prefix,
         ).attach(evaluator)
+    #print(checkpoint['opt']['param_groups'])
+
 
     if trainer is not None:
         trainer.add_event_handler(Events.ITERATION_COMPLETED, TerminateOnNan())
@@ -875,6 +881,7 @@ def get_trainer(
 
         logger.critical("!!!!!!!!!!!!!!!!!!!! RESUMING !!!!!!!!!!!!!!!!!!!!!!!!!")
         handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
+        print(checkpoint['opt']['param_groups'])
         if trainer is not None:
             handler(trainer)
         else:

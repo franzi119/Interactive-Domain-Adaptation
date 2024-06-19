@@ -44,7 +44,6 @@ from monai.transforms import (
     ToDeviced,
     ToTensord,
     VoteEnsembled,
-
 )
 from monai.utils.enums import CommonKeys
 
@@ -70,6 +69,7 @@ from sw_fastedit.transforms import (
     PrintShape,
     PrintKeys,
     SplitDimd,
+    SaveImagedSlices,
 )
 from sw_fastedit.utils.helper import convert_mha_to_nii, convert_nii_to_mha
 
@@ -396,8 +396,6 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
 
     input_keys = ("pred",)
     t = [
-        
-
         SplitDimd(keys=('image_mri'), allow_missing_keys=True)
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
@@ -410,8 +408,8 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-        CopyItemsd(keys=("pred", "pred_ep", "label_1", "label_0", "image_ct_0", "image_mri_0"), times=1,
-                    names=("pred_seg_for_save", "pred_ep_for_save", "ep_for_save", "label_for_save", "image_for_save", "image_for_save"), allow_missing_keys=True)
+        CopyItemsd(keys=("pred", "pred_ep", "pred_ep_processed", "label_1", "label_0", "image_ct_0", "image_mri_0"), times=1,
+                    names=("pred_seg_for_save", "pred_ep_for_save", "pred_ep_processed_for_save", "ep_for_save", "label_for_save", "image_for_save", "image_for_save"), allow_missing_keys=True)
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
@@ -451,11 +449,23 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-        SaveImaged(
+        SaveImagedSlices(
             keys=("pred_ep_for_save",),
             writer="ITKWriter",
             output_dir=os.path.join(output_dir, "predictions"),
             output_postfix="pred_ep",
+            output_dtype=np.uint8,
+            separate_folder=True,
+            resample=False,
+        )
+        if save_pred
+        else Identityd(keys=input_keys, allow_missing_keys=True),
+
+        SaveImagedSlices(
+            keys=("pred_ep_processed_for_save",),
+            writer="ITKWriter",
+            output_dir=os.path.join(output_dir, "predictions"),
+            output_postfix="pred_ep_processed",
             output_dtype=np.uint8,
             separate_folder=True,
             resample=False,
@@ -475,7 +485,7 @@ def get_post_transforms(labels, *, save_pred=False, output_dir=None, pretransfor
         if save_pred
         else Identityd(keys=input_keys, allow_missing_keys=True),
 
-        SaveImaged(
+        SaveImagedSlices(
             keys=("ep_for_save",),
             writer="ITKWriter",
             output_dir=os.path.join(output_dir, "predictions"),
@@ -642,6 +652,40 @@ def get_post_ensemble_transforms(labels, device, pred_dir, pretransform, nfolds=
 
 
 
+def get_TotalSegmentor_file_list(args, image_type: str) -> List[List, List, List]:
+    """
+    Get file lists for AutoPET dataset.
+
+    Args:
+        args: Command line arguments.
+
+    Returns:
+        Tuple[List[Dict[str, str]], List[Dict[str, str]], List[Dict[str, str]]]:
+        A tuple containing lists of training, validation, and test data dictionaries.
+        Each dictionary contains the paths to the image and label files.
+    """
+    train_images = sorted(glob.glob(os.path.join(args.input_dir,image_type, "imagesTr", "*.nii.gz")))
+    train_labels = sorted(glob.glob(os.path.join(args.input_dir, image_type,"labelsTr", "*.nii.gz")))
+
+    test_images = sorted(glob.glob(os.path.join(args.input_dir, image_type,"imagesTs", "*.nii.gz")))
+    test_labels = sorted(glob.glob(os.path.join(args.input_dir, image_type,"labelsTs", "*.nii.gz")))
+
+    if(image_type=='CT'):
+        train_data = [
+            {"image_ct": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
+        ]
+        val_data = [{"image_ct": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+        test_data = [{"image_ct": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+    else:
+        train_data = [
+            {"image_mri": image_name, "label": label_name} for image_name, label_name in zip(train_images, train_labels)
+        ]
+        val_data = [{"image_mri": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+        test_data = [{"image_mri": image_name, "label": label_name} for image_name, label_name in zip(test_images, test_labels)]
+
+    return train_data, val_data, test_data
+
+
 
 
 def get_AMOS_file_list(args, image_type: str) -> List[List, List, List]:
@@ -716,6 +760,8 @@ def get_data(args, image_type:str):
 
     if args.dataset == "AMOS":
         train_data, val_data, test_data = get_AMOS_file_list(args, image_type)
+    elif args.dataset == "TotalSegmentor":
+        train_data, val_data, test_data = get_TotalSegmentor_file_list(args, image_type)
         
 
 

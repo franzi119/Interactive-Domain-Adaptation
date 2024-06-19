@@ -15,6 +15,7 @@ from monai.utils import DiceCEReduction, LossReduction, Weight, look_up_option
 from monai.data import list_data_collate, decollate_batch
 from monai.transforms import AsDiscrete
 
+
 logger = logging.getLogger("sw_fastedit")
 
 
@@ -37,6 +38,7 @@ class DiceCeL2Loss(_Loss):
         lambda_dice: float = 1,
         lambda_ce: float = 1,
         lambda_rec: float = 1,
+        lambda_adv: float = 0.5,
         args=None
     ) -> None:
         """
@@ -83,6 +85,9 @@ class DiceCeL2Loss(_Loss):
         # include_background should be set to True if the dice loss stagnates because the error signal is too weak from the small tumor lesions
         self.dice = DiceLoss(to_onehot_y=to_onehot_y, softmax=softmax, include_background=include_background, batch=batch)
 
+        self.adv = nn.BCEWithLogitsLoss()
+
+
         self.cross_entropy = nn.CrossEntropyLoss(weight=ce_weight, reduction=reduction)
         self.rec_loss = nn.MSELoss()
         if lambda_dice < 0.0:
@@ -92,6 +97,7 @@ class DiceCeL2Loss(_Loss):
         self.lambda_dice = lambda_dice
         self.lambda_ce = lambda_ce
         self.lambda_rec = lambda_rec
+        self.lambda_adv = lambda_adv
 
 
         self.post_label = AsDiscrete(to_onehot=2)
@@ -117,7 +123,7 @@ class DiceCeL2Loss(_Loss):
         return self.cross_entropy(input, target)
 
 
-    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+    def forward(self, input: torch.Tensor, target: torch.Tensor, input_adv: torch.Tensor, target_adv: torch.Tensor, no_discriminator: bool) -> torch.Tensor:
         """
         Args:
             input: the shape should be BNH[WD].
@@ -138,11 +144,20 @@ class DiceCeL2Loss(_Loss):
             raise ValueError("the number of dimensions for input and target should be the same.")
         dice_loss = self.dice(input_seg, target_seg)
         ce_loss = self.ce(input_seg, target_seg)
+        if target_adv:
+            adv_loss = self.adv(input_adv, target_adv)
+        else:
+            adv_loss = 0
+
        
 
         rec_loss = self.rec_loss(input_ep, target_ep)
-    
-        total_loss: torch.Tensor = self.lambda_dice * dice_loss + self.lambda_dice * ce_loss + self.lambda_rec * rec_loss
-        logger.info(f"Total loss: {total_loss.item()}, DiceCE: {dice_loss.item()+ce_loss.item()}, Mean squared error: {rec_loss} ")
+        
+        if no_discriminator:
+            total_loss: torch.Tensor = self.lambda_dice * dice_loss + self.lambda_dice * ce_loss + self.lambda_rec * rec_loss
+            logger.info(f"Total loss: {total_loss.item()}, DiceCE: {dice_loss.item()+ce_loss.item()}, Mean squared error: {rec_loss}")
+        else:
+            total_loss: torch.Tensor = self.lambda_dice * dice_loss + self.lambda_dice * ce_loss + self.lambda_rec * rec_loss + self.lambda_adv * adv_loss
+            logger.info(f"Total loss: {total_loss.item()}, DiceCE: {dice_loss.item()+ce_loss.item()}, Mean squared error: {rec_loss}, Adversarial loss: {adv_loss}")
 
         return total_loss    
