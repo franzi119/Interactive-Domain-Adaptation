@@ -193,7 +193,7 @@ def parse_args():
 
 
     # Guidance Signal Hyperparameters
-    parser.add_argument("--sigma", type=int, default=7) #breaks ep when higher
+    parser.add_argument("--sigma", type=int, default=7)
     parser.add_argument("--no_disks", default=False, action="store_true")
     parser.add_argument("--gdt", default=False, action="store_true")
 
@@ -232,7 +232,7 @@ def setup_environment_and_adapt_args(args):
 
     device = torch.device(f"cuda:{args.gpu}")
     
-    args.labels = {"liver": 10, "background": 0}
+    args.labels = {"liver": 6, "background": 0}
     #1 spleen
     #2 right kidney
     #3 left kidney

@@ -58,6 +58,7 @@ def run(args):
             additional_val_metrics,
         ) = get_trainer(args, resume_from=args.resume_from)
         train_metric_names = list(key_train_metric.keys()) + list(additional_train_metrics.keys())
+        #val_metric_names = [] # TODO list(key_val_metric.keys()) + list(additional_val_metrics.keys())
         val_metric_names = [] # TODO list(key_val_metric.keys()) + list(additional_val_metrics.keys())
 
         tb_logger = init_tensorboard_logger(

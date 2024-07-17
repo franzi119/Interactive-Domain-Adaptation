@@ -224,18 +224,18 @@ class SupervisedTrainer(Trainer):
             inputs, targets, args, kwargs = batch
         
         #def save_ep_label():
-            print('ep values unique', torch.unique(targets[:, 1:2]))
-            targets_no_zeros = targets[:, 1:2][targets[:, 1:2] != 0]
-            print('ep values unique no zeros', torch.unique(targets_no_zeros))
-            plt.hist(targets_no_zeros.flatten().cpu().numpy(), bins=100, range=(-1,1))
-            plt.savefig('/cvhci/temp/frseiz/data_output/ep_network/test_threshold/histogram_label_ep.png')
-            import cv2
-            print('shape', targets[:, 1:2].shape)
-            for i in range(targets[:, 1:2].shape[2]):
-                slice = targets[0][1][i]*255
-                print(slice.shape)
-                cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/slices_label/ep_slice_{i}.png', slice.cpu().numpy().astype(np.uint8))
-            exit()
+            # print('ep values unique', torch.unique(targets[:, 1:2]))
+            # targets_no_zeros = targets[:, 1:2][targets[:, 1:2] != 0]
+            # print('ep values unique no zeros', torch.unique(targets_no_zeros))
+            # plt.hist(targets_no_zeros.flatten().cpu().numpy(), bins=100, range=(-1,1))
+            # plt.savefig('/cvhci/temp/frseiz/data_output/ep_network/test_threshold/histogram_label_ep.png')
+            # import cv2
+            # print('shape', targets[:, 1:2].shape)
+            # for i in range(targets[:, 1:2].shape[2]):
+            #     slice = targets[0][1][i]*255
+            #     print(slice.shape)
+            #     cv2.imwrite(f'/cvhci/temp/frseiz/data_output/ep_network/test_threshold/slices_label/ep_slice_{i}.png', slice.cpu().numpy().astype(np.uint8))
+            # exit()
 
         logger.info("inputs.shape is {}".format(inputs.shape))
         logger.info("labels.shape is {}".format(targets.shape))
@@ -370,7 +370,7 @@ class SupervisedTrainer(Trainer):
            
             engine.fire_event(IterationEvents.FORWARD_COMPLETED)
         
-            #postprocessing, try with threshold between 0.05 and 0.25 (maybe 0.3)
+            #postprocessing, try with threshold between 0.05 and 0.25
             pred_ep_processed = torch.where(engine.state.output[Keys.PRED_EP] > 0.1, engine.state.output[Keys.PRED_EP], torch.tensor(0.0)) 
 
             engine.state.output[Keys.PRED_SEG_EP] = torch.cat((engine.state.output[Keys.PRED], pred_ep_processed), dim=1)

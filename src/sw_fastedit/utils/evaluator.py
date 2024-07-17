@@ -316,42 +316,42 @@ class SupervisedEvaluator(Evaluator):
         for i in range(len(batchdata["label"])):
             if torch.sum(batchdata["label"][i, 0]) < 0.1:
                 logger.warning("No valid labels for this sample (probably due to crop)")
-
         # put iteration outputs into engine.state
         if keys[0]== 'image_mri':    
             engine.state.output = {Keys.IMAGE_MRI: inputs, Keys.LABEL: targets}
         else:
             engine.state.output = {Keys.IMAGE_CT: inputs, Keys.LABEL: targets}
         inputs_seg_ep = torch.cat((inputs, targets[:,1:2]), dim=1) #image and generated ep as input
-        #print("shape inputs_seg_ep", inputs_seg_ep.shape)
         
-        #print('shape label', engine.state.output[Keys.LABEL].shape)
         # execute forward computation
         with engine.mode(engine.network):
             if engine.amp:
                 with torch.cuda.amp.autocast(**engine.amp_kwargs):
                     engine.state.output[Keys.LABEL] = targets[:, 1:2]
-                    engine.state.output[Keys.PRED] = engine.inferer(inputs, engine.network[0], *args, **kwargs)
-                    engine.state.output['pred_ep'] = engine.state.output[Keys.PRED]
+                    engine.state.output[Keys.PRED_EP] = engine.inferer(inputs, engine.network[0], *args, **kwargs)
+                    pred_ep_processed = torch.where(engine.state.output[Keys.PRED_EP] > 0.1, engine.state.output[Keys.PRED_EP], torch.tensor(0.0)) 
+                    engine.state.output['pred_ep_processed'] = pred_ep_processed
+                    inputs_seg_ep_processed = torch.cat((inputs, pred_ep_processed), dim=1) #image and generated ep as input
 
                     engine.state.output[Keys.LABEL] = targets[:, 0:1]
                     engine.state.output[Keys.PRED] = engine.inferer(inputs_seg_ep, engine.network[1], *args, **kwargs)
             else:
                 engine.state.output[Keys.LABEL] = targets[:, 1:2]
-                engine.state.output[Keys.PRED] = engine.inferer(inputs, engine.network[0], *args, **kwargs)
-                engine.state.output['pred_ep'] = engine.state.output[Keys.PRED]
+                engine.state.output[Keys.PRED_EP] = engine.inferer(inputs, engine.network[0], *args, **kwargs)
+                pred_ep_processed = torch.where(engine.state.output[Keys.PRED_EP] > 0.1, engine.state.output[Keys.PRED_EP], torch.tensor(0.0)) 
+                engine.state.output['pred_ep_processed'] = pred_ep_processed
+                inputs_seg_ep_processed = torch.cat((inputs, pred_ep_processed), dim=1) #image and generated ep as input
 
                 engine.state.output[Keys.LABEL] = targets[:, 0:1]
                 engine.state.output[Keys.PRED] = engine.inferer(inputs_seg_ep, engine.network[1], *args, **kwargs)
         #dm = DiceMetric(include_background=True, reduction="mean", get_not_nans=False)
-        mse_metric = self.mse_metric(y_pred=engine.state.output['pred_ep'], y=targets[:, 1:2]).item()
         #print('dice metric ', y_pred=torch.argmax(engine.state.output[Keys.PRED], dim=1, keepdims=True), y=targets[:, 0:1]))
         #segmentation mask
         rounded_pred = torch.round(engine.state.output[Keys.PRED])
         converted_pred = torch.where(rounded_pred > 0, torch.tensor(1), rounded_pred)
         converted_pred = torch.where(converted_pred < 0, torch.tensor(0), converted_pred)
 
-        print('converted pred unique', torch.unique(converted_pred))
+        mse_metric = self.mse_metric(y_pred=engine.state.output[Keys.PRED_EP], y=targets[:, 1:2]).item()
         pred = decollate_batch(torch.argmax(rounded_pred, dim=1, keepdims=True))
         target = decollate_batch(targets[:, 0:1])
         dice_metric = self.dice_metric(y_pred=pred, y=target)

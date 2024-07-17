@@ -817,9 +817,12 @@ def get_trainer(
             }
     else:
         save_dict = {
-            "net_ep": networks[0],
-            "net_seg": networks[1],
-            "net_dis": networks[2],
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
         }
 
     if ensemble_mode:
