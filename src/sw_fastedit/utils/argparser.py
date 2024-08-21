@@ -90,7 +90,7 @@ def parse_args():
         help="Limit the amount of training/validation samples to a fixed number",
     )
     parser.add_argument(
-        "--dataset", default="AMOS", choices=["AutoPET", "AutoPET2", "HECKTOR", "MSD_Spleen", "AutoPET2_Challenge", "AMOS"]
+        "--dataset", default="AMOS", choices=["AMOS"]
     )
     parser.add_argument(
         "--use_test_data_for_validation", default=False, action="store_true", help="Use the test data instead of the split of the training data for validation. May not work for all models but is tested for AutoPET"
@@ -122,17 +122,22 @@ def parse_args():
         default="SimpleInferer",
         choices=["SimpleInferer"],
     )
-    parser.add_argument("--sw_roi_size", default="(128,128,128)", action="store")
+
+    # source and target dataset
+    parser.add_argument("--source_dataset", default="image_ct")
+    parser.add_argument("--target_dataset", default="image_mri")
+
+    #parser.add_argument("--sw_roi_size", default="(128,128,128)", action="store")
     # crop_size multiples of sliding window size (128,128,128) with overlap 0.25 (default): 128, 224, 320, 416, 512
-    parser.add_argument("--train_crop_size", default="(224,224,224)", action="store")
+    #parser.add_argument("--train_crop_size", default="(224,224,224)", action="store")
     #parser.add_argument("--train_crop_size", default="None", action="store")
-    parser.add_argument("--val_crop_size", default="None", action="store")
-    # 1 on 24 Gb, 8 on 50 Gb,
-    parser.add_argument("--train_sw_batch_size", type=int, default=1)
-    parser.add_argument("--val_sw_batch_size", type=int, default=1)
-    parser.add_argument("--train_sw_overlap", type=float, default=0.25)
+    #parser.add_argument("--val_crop_size", default="None", action="store")
+    # 1 on 24 Gb, 8 on 50 Gb
+    #parser.add_argument("--train_sw_batch_size", type=int, default=1)
+    #parser.add_argument("--val_sw_batch_size", type=int, default=1)
+    #parser.add_argument("--train_sw_overlap", type=float, default=0.25)
     # Reduce this if you run into OOMs
-    parser.add_argument("--val_sw_overlap", type=float, default=0.25)
+    #parser.add_argument("--val_sw_overlap", type=float, default=0.25)
     parser.add_argument("--sw_cpu_output", default=False, action="store_true")
 
     # Training
@@ -143,8 +148,10 @@ def parse_args():
     # If learning rate is set to 0.001, the DiceCELoss will produce Nans very quickly
     parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001)
     parser.add_argument("--optimizer", default="Adam", choices=["Adam", "Novograd"])
-    parser.add_argument("--loss_seg", default="DiceCEL2Loss", choices=["DiceCEL2Loss"])
+    parser.add_argument("--loss_ugda", default="DiceCEL2Loss", choices=["DiceCEL2Loss"])
     parser.add_argument("--loss_dis", default="CrossEntropy", choices=["CrossEntropy"])
+    parser.add_argument("--loss_dynunet", default="DiceCELoss", choices=["DiceCELoss"])
+    parser.add_argument("--loss_mse", default="MSELoss", choices=["MSELoss"])
     parser.add_argument(
         "--scheduler",
         default="CosineAnnealingLR",
@@ -156,7 +163,7 @@ def parse_args():
     #LOSS extreme points
     parser.add_argument("--loss_ep", default="mean_squared_error")
     parser.add_argument("--optimizer_ep", default="Adam")
-    parser.add_argument("-lr_ep", "--learning_rate_ep", type=float, default=0.0003)
+    parser.add_argument("-lr_dis", "--learning_rate_dis", type=float, default=0.0003)
 
     parser.add_argument("--resume_from", type=str, default="None")
     # Use this parameter to change the scheduler..
@@ -191,6 +198,8 @@ def parse_args():
     # Discriminator
     parser.add_argument("-nd", "--no_discriminator", default=False, action="store_true")
 
+    # extreme points
+    parser.add_argument("-nep", "--no_extreme_points", default=False, action="store_true")
 
     # Guidance Signal Hyperparameters
     parser.add_argument("--sigma", type=int, default=7)
@@ -232,7 +241,7 @@ def setup_environment_and_adapt_args(args):
 
     device = torch.device(f"cuda:{args.gpu}")
     
-    args.labels = {"liver": 6, "background": 0}
+    args.labels = {"liver":7, "background": 0}
     #1 spleen
     #2 right kidney
     #3 left kidney
@@ -345,27 +354,5 @@ def setup_environment_and_adapt_args(args):
             args.gpu_size = "large"
         logger.info(f"Selected GPU size: {args.gpu_size}, since GPU Memory: {nv_total} GB")
 
-    # Init the Inferer
-    args.sw_roi_size = eval(args.sw_roi_size)
-    assert len(args.sw_roi_size) == 3
-
-    if args.val_crop_size == "None":
-        args.val_crop_size = None
-    else:
-        args.val_crop_size = eval(args.val_crop_size)
-        assert len(args.val_crop_size) == 3
-
-    if args.train_crop_size == "None":
-        args.train_crop_size = None
-    else:
-        args.train_crop_size = eval(args.train_crop_size)
-        assert len(args.train_crop_size) == 3
-
-    #verify both have a valid size (for Unet with seven layers)
-    #if args.inferer == "SimpleInferer":
-        #for size in args.train_crop_size:
-        #    assert (size % 32) == 0
-        #for size in args.val_crop_size:
-         #   assert (size % 32) == 0
 
     return args, logger

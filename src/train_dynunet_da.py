@@ -27,10 +27,10 @@ from ignite.engine import Events
 from monai.engines.utils import IterationEvents
 from monai.utils.profiling import ProfileHandler, WorkflowProfiler
 
-from sw_fastedit.api import get_trainer, oom_observer
+from sw_fastedit.api import get_trainer_dynunet_da, oom_observer
 from sw_fastedit.utils.argparser import parse_args, setup_environment_and_adapt_args
 from sw_fastedit.utils.helper import GPU_Thread, TerminationHandler, get_gpu_usage, handle_exception
-from sw_fastedit.utils.tensorboard_logger import init_tensorboard_logger_separate
+from sw_fastedit.utils.tensorboard_logger import init_tensorboard_logger_da
 
 logger = logging.getLogger("sw_fastedit")
 
@@ -56,11 +56,11 @@ def run(args):
             additional_train_metrics,
             key_val_metric,
             additional_val_metrics,
-        ) = get_trainer(args, resume_from=args.resume_from)
+        ) = get_trainer_dynunet_da(args, resume_from=args.resume_from)
         train_metric_names = list(key_train_metric.keys()) + list(additional_train_metrics.keys())
         val_metric_names = list(key_val_metric.keys()) + list(additional_val_metrics.keys())
 
-        tb_logger = init_tensorboard_logger_separate(
+        tb_logger = init_tensorboard_logger_da(
             args,
             trainer,
             evaluator,
@@ -77,7 +77,7 @@ def run(args):
         with tb_logger:
             with wp:
                 start_time = time.time()
-                for t, name in [(trainer, "trainer"), (evaluator, "evaluator")]:
+                for t, name in [(trainer, "trainer"), (evaluator[0], "evaluator_source"), (evaluator[1], "evaluator_target")]:
                     for event in [
                         ["Epoch", wp, Events.EPOCH_STARTED, Events.EPOCH_COMPLETED],
                         [
@@ -107,7 +107,8 @@ def run(args):
                     if not args.eval_only:
                         trainer.run()
                     else:
-                        evaluator.run()
+                        evaluator[0].run()
+                        evaluator[1].run()
                 except torch.cuda.OutOfMemoryError:
                     oom_observer(device, None, None, None)
                     logger.critical(get_gpu_usage(device, used_memory_only=False, context="ERROR"))

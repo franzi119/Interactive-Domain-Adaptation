@@ -337,11 +337,11 @@ class CommonKeys(StrEnum):
     `INFO` is some useful information during training or evaluation, like loss value, etc.
 
     """
-
-    IMAGE_CT = "image_ct"
-    IMAGE_MRI = "image_mri"
-    LABEL_CT = "label_ct"
-    LABEL_MRI = "label_mri"
+    IMAGE = "image"
+    IMAGE_SOURCE = "image_source"
+    IMAGE_TARGET = "image_target"
+    LABEL_EP = "label_ep"
+    LABEL_SEG = "label_seg"
     LABEL = "label"
     PRED = "pred"
     PRED_SEG = "pred_seg"

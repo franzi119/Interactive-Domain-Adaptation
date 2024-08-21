@@ -34,10 +34,9 @@ from torch.utils.data import ConcatDataset
 from ignite.engine import Events
 from ignite.handlers import TerminateOnNan
 from monai.data import set_track_meta
-from sw_fastedit.utils.trainer import SupervisedTrainer
-from sw_fastedit.utils.evaluator import SupervisedEvaluator
+from sw_fastedit.utils.trainer import SupervisedTrainer, SupervisedTrainerEp, SupervisedTrainerDynUnet, SupervisedTrainerDynUnetDa
+from sw_fastedit.utils.evaluator import SupervisedEvaluator, SupervisedEvaluatorEp, SupervisedEvaluatorDynUnet, SupervisedEvaluatorDynUnetDa
 from sw_fastedit.utils.validation_handler import ValidationHandler
-from monai.engines import EnsembleEvaluator
 from monai.handlers import (
     CheckpointLoader,
     CheckpointSaver,
@@ -48,9 +47,9 @@ from monai.handlers import (
     StatsHandler,
     from_engine,
 )
+from monai.handlers.regression_metrics import MeanSquaredError
 from monai.inferers import SimpleInferer, SlidingWindowInferer
 from monai.losses import DiceCELoss, DiceLoss
-from monai.metrics import MSEMetric
 from monai.metrics import SurfaceDiceMetric
 from monai.networks.nets.dynunet import DynUNet
 from monai.optimizers.novograd import Novograd
@@ -59,18 +58,22 @@ from monai.utils import set_determinism
 
 
 from sw_fastedit.data import (
-    #get_click_transforms,
     get_post_transforms,
+    get_post_transforms_ep,
+    get_post_transforms_dynunet,
     get_pre_transforms_train_as_list,
     get_pre_transforms_val_as_list,
     get_train_loader,
+    get_train_loader_separate,
     get_val_loader,
-    get_test_loader,
+    get_val_loader_separate,
 )
 from sw_fastedit.dice_ce_l2 import DiceCeL2Loss
 from sw_fastedit.discriminator import Discriminator
-from sw_fastedit.interaction import Interaction
 from sw_fastedit.utils.helper import count_parameters, is_docker, run_once, handle_exception
+
+
+from sw_fastedit.transforms import SplitDimd
 
 logger = logging.getLogger("sw_fastedit")
 output_dir = None
@@ -92,12 +95,12 @@ def get_optimizer(optimizer: str, lr: float, networks):
         # Get an Adam optimizer with a learning rate of 0.001 for a neural network
         optimizer = get_optimizer("Adam", 0.001, my_neural_network)
     """
-    all_params = chain(networks[0].parameters(), networks[1].parameters(), networks[2].parameters())
+    params = chain(*[network.parameters() for network in networks])
 
     if optimizer == "Novograd":
-        optimizer = Novograd(all_params, lr)
+        optimizer = Novograd(params, lr)
     elif optimizer == "Adam":
-        optimizer = torch.optim.Adam(all_params, lr)
+        optimizer = torch.optim.Adam(params, lr)
     return optimizer
 
 
@@ -129,13 +132,17 @@ def get_loss_function(loss_args, loss_kwargs=None):
         loss_kwargs = {}
     if loss_args == "DiceCEL2Loss":
         loss_function = DiceCeL2Loss(to_onehot_y=True, softmax=True, **loss_kwargs)
+    if loss_args == "DiceCELoss":
+        loss_function = DiceCELoss(to_onehot_y=True, softmax=True, **loss_kwargs)
     if loss_args == "CrossEntropy":
         loss_function = nn.BCEWithLogitsLoss()
+    if loss_args == "MSELoss":
+        loss_function = nn.MSELoss()
 
     return loss_function
 
 
-def get_network(network_str: str, labels: Iterable, non_interactive: bool = False, no_discriminator: bool = False):
+def get_network(network_str: str, labels: Iterable, no_discriminator: bool = False, no_extreme_points: bool = False):
 
     """
     Get a network for semantic segmentation.
@@ -180,47 +187,39 @@ def get_network(network_str: str, labels: Iterable, non_interactive: bool = Fals
             deep_supervision=False,
             res_block=True,
         ))
-        networks.append(DynUNet(
-            spatial_dims=3,
-            in_channels=2, #extreme point output + image
-            out_channels=out_channels,
-            kernel_size=[3, 3, 3, 3, 3, 3],
-            strides=[1, 2, 2, 2, 2, [2, 2, 1]],
-            upsample_kernel_size=[2, 2, 2, 2, [2, 2, 1]],
-            norm_name="instance",
-            deep_supervision=False,
-            res_block=True,
-        ))
 
-    elif network_str == "smalldynunet":
-        networks = DynUNet(
-            spatial_dims=3,
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=[3, 3, 3],
-            strides=[1, 2, [2, 2, 1]],
-            upsample_kernel_size=[2, [2, 2, 1]],
-            norm_name="instance",
-            deep_supervision=False,
-            res_block=True,
-        )
-    elif network_str == "bigdynunet":
-        networks = DynUNet(
-            spatial_dims=3,
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=[3, 3, 3, 3, 3, 3, 3],
-            strides=[1, 2, 2, 2, 2, 2, [2, 2, 1]],
-            upsample_kernel_size=[2, 2, 2, 2, 2, [2, 2, 1]],
-            norm_name="instance",
-            deep_supervision=False,
-            res_block=True,
-        )
-    
-    parameters = count_parameters(networks[0])+count_parameters(networks[1])
-    networks.append(Discriminator(num_in_channels=3))
-    if(no_discriminator):
-        parameters+= count_parameters(networks[2])
+        if (not no_extreme_points):
+            networks.append(DynUNet(
+                spatial_dims=3,
+                in_channels=2, #extreme point output + image
+                out_channels=out_channels,
+                kernel_size=[3, 3, 3, 3, 3, 3],
+                strides=[1, 2, 2, 2, 2, [2, 2, 1]],
+                upsample_kernel_size=[2, 2, 2, 2, [2, 2, 1]],
+                norm_name="instance",
+                deep_supervision=False,
+                res_block=True,
+            ))
+        else:
+            networks.append(DynUNet(
+                spatial_dims=3,
+                in_channels=1, #extreme point output
+                out_channels=out_channels,
+                kernel_size=[3, 3, 3, 3, 3, 3],
+                strides=[1, 2, 2, 2, 2, [2, 2, 1]],
+                upsample_kernel_size=[2, 2, 2, 2, [2, 2, 1]],
+                norm_name="instance",
+                deep_supervision=False,
+                res_block=True,
+            ))
+
+        networks.append(Discriminator(num_in_channels=3))
+
+    parameters = count_parameters(networks[1])
+    if not no_extreme_points:
+        parameters += count_parameters(networks[0])
+    if(not no_discriminator):
+        parameters += count_parameters(networks[2])
 
     logger.info(f"Selected network {networks.__class__.__qualname__}")
     logger.info(f"Number of parameters: {parameters:,}")
@@ -272,23 +271,14 @@ def get_scheduler(optimizer, scheduler_str: str, epochs_to_run: int):
         ValueError: If an unsupported scheduler type is provided.
     """
 
-    if scheduler_str == "MultiStepLR":
-        steps = 4 # AutoPET specific!
-        steps_per_epoch = round(epochs_to_run / steps)
-        if steps_per_epoch < 1:
-            logger.error(f"Chosen number of epochs {epochs_to_run}/{steps} < 0")
-            milestones = range(0, epochs_to_run)
-        else:
-            milestones = [num for num in range(0, epochs_to_run) if num % round(steps_per_epoch) == 0][1:]
-        lr_scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=0.333)
-    elif scheduler_str == "PolynomialLR":
+    if scheduler_str == "PolynomialLR":
         lr_scheduler = torch.optim.lr_scheduler.PolynomialLR(optimizer, total_iters=epochs_to_run, power=2)
     elif scheduler_str == "CosineAnnealingLR":
         lr_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs_to_run, eta_min=1e-8)
     return lr_scheduler
 
 
-def get_val_handlers(sw_roi_size: List, inferer: str, gpu_size: str, *,garbage_collector=True, non_interactive=False):
+def get_val_handlers(inferer: str, gpu_size: str, *,garbage_collector=True, non_interactive=False):
     """
     Retrieves a list of event handlers for validation in a MONAI training workflow.
 
@@ -315,14 +305,9 @@ def get_val_handlers(sw_roi_size: List, inferer: str, gpu_size: str, *,garbage_c
     TODO Franzi:
         # Set the iterations = 1 and it is done
     """
-    every_x_iterations = 1 
-    if non_interactive:
-        every_x_iterations = 1
+    #every_x_iterations = 1 
 
-    if sw_roi_size[0] < 128:
-        val_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
-    else:
-        val_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
+    #val_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
 
     # define event-handlers for engine
     val_handlers = [
@@ -332,10 +317,12 @@ def get_val_handlers(sw_roi_size: List, inferer: str, gpu_size: str, *,garbage_c
     ]
     if garbage_collector:
         # https://github.com/Project-MONAI/MONAI/issues/3423
-        iteration_gc = GarbageCollector(log_level=10, trigger_event=val_trigger_event)
+        iteration_gc = GarbageCollector(log_level=10, trigger_event="epoch")
         val_handlers.append(iteration_gc)
 
     return val_handlers
+
+
 
 
 def get_train_handlers(
@@ -343,7 +330,6 @@ def get_train_handlers(
     evaluator,
     val_freq,
     eval_only: bool,
-    sw_roi_size: List,
     inferer: str,
     gpu_size: str,
     garbage_collector=True,
@@ -379,9 +365,6 @@ def get_train_handlers(
     TODO Franzi:
         # Set the iterations = 1 and it is done
     """
-    every_x_iterations = 1 
-    if non_interactive:
-        every_x_iterations = 1
 
     # if sw_roi_size[0] <= 128:
     #     train_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
@@ -397,6 +380,80 @@ def get_train_handlers(
             interval=val_freq,
             epoch_level=(not eval_only),
         ),
+        
+        StatsHandler(tag_name="train_loss", output_transform=from_engine(["loss"], first=True)),
+        # End of epoch GarbageCollection
+        GarbageCollector(log_level=10),
+    ]
+    if garbage_collector:
+        # https://github.com/Project-MONAI/MONAI/issues/3423
+        iteration_gc = GarbageCollector(log_level=10, trigger_event='epoch')
+        train_handlers.append(iteration_gc)
+
+    return train_handlers
+
+def get_train_handlers_separate(
+    lr_scheduler,
+    evaluator_source,
+    evaluator_target,
+    val_freq,
+    eval_only: bool,
+    inferer: str,
+    gpu_size: str,
+    garbage_collector=True,
+    non_interactive=False,
+):
+    """
+    Retrieves a list of event handlers for training in a MONAI training workflow.
+
+    Args:
+        lr_scheduler: The learning rate scheduler for the optimizer.
+        evaluator: The evaluator for validation during training.
+        val_freq: The frequency of validation in terms of iterations or epochs.
+        eval_only (bool): Flag indicating if training is for evaluation only.
+        sw_roi_size (List): The region of interest size for the sliding window strategy.
+        inferer (str): The type of inferer, e.g., "SimpleInferer" or "SlidingWindowInferer".
+        gpu_size (str): The GPU size, one of "large" or any other value.
+        garbage_collector (bool, optional): Whether to include the GarbageCollector event handler (default is True).
+        non_interactive (bool, optional): Whether the environment is non-interactive (default is False).
+
+    Returns:
+        List[Event_Handler]: A list of event handlers for training in a MONAI training workflow.
+
+    Notes:
+        - The returned list includes an LrScheduleHandler, ValidationHandler, StatsHandler, and an optional GarbageCollector event handler.
+        - The GarbageCollector event handler is triggered based on the provided parameters.
+
+    Raises:
+        ValueError: If an unsupported inferer type is provided.
+
+    References:
+        [1] https://github.com/Project-MONAI/MONAI/issues/3423
+
+    TODO Franzi:
+        # Set the iterations = 1 and it is done
+    """
+
+    # if sw_roi_size[0] <= 128:
+    #     train_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
+    # else:
+    #     train_trigger_event = (
+    #         Events.ITERATION_COMPLETED(every=every_x_iterations*2) if gpu_size == "large" else Events.ITERATION_COMPLETED(every=every_x_iterations)
+    #     )
+
+    train_handlers = [
+        LrScheduleHandler(lr_scheduler=lr_scheduler, print_lr=True),
+        ValidationHandler(
+            validator=evaluator_source,
+            interval=val_freq,
+            epoch_level=(not eval_only),
+        ),
+        ValidationHandler(
+            validator=evaluator_target,
+            interval=val_freq,
+            epoch_level=(not eval_only),
+        ),
+        
         StatsHandler(tag_name="train_loss", output_transform=from_engine(["loss"], first=True)),
         # End of epoch GarbageCollection
         GarbageCollector(log_level=10),
@@ -423,9 +480,40 @@ def get_key_metric(str_to_prepend="") -> OrderedDict:
         # Add MXA
     """
     key_metrics = OrderedDict()
-    key_metrics[f"{str_to_prepend}dice"] = MeanDice(
-        output_transform=from_engine(["pred", "label"]), include_background=False, save_details=False
-    )
+    key_metrics[f"{str_to_prepend}dice"] = MeanDice(output_transform=from_engine(["pred_seg", "label_seg"]), include_background=False, save_details=False)
+    key_metrics[f"{str_to_prepend}mse"] = MeanSquaredError(output_transform=from_engine(["pred_ep", "label_ep"]))
+    return key_metrics
+
+def get_key_metric_ep(str_to_prepend="") -> OrderedDict:
+    """
+    Retrieves key metrics, particularly Mean Dice, for use in a MONAI training workflow.
+
+    Args:
+        str_to_prepend (str, optional): A string to prepend to the metric name (default is an empty string).
+
+    Returns:
+        OrderedDict: An ordered dictionary containing key metrics for training and evaluation.
+
+    """
+    key_metrics = OrderedDict()
+    key_metrics[f"{str_to_prepend}mse"] = MeanSquaredError(output_transform=from_engine(["pred_ep", "label_ep"]))
+    return key_metrics
+
+def get_key_metric_seg(str_to_prepend="") -> OrderedDict:
+    """
+    Retrieves key metrics, particularly Mean Dice, for use in a MONAI training workflow.
+
+    Args:
+        str_to_prepend (str, optional): A string to prepend to the metric name (default is an empty string).
+
+    Returns:
+        OrderedDict: An ordered dictionary containing key metrics for training and evaluation.
+
+    TODO Franzi:
+        # Add MXA
+    """
+    key_metrics = OrderedDict()
+    key_metrics[f"{str_to_prepend}dice"] = MeanDice(output_transform=from_engine(["pred_seg", "label_seg"]), include_background=False, save_details=False)
     return key_metrics
 
 
@@ -457,7 +545,7 @@ def get_additional_metrics(labels, include_background=False, loss_kwargs=None, s
 
     loss_function_metric_ignite = IgniteMetricHandler(
         loss_fn=loss_function,
-        output_transform=from_engine(["pred", "label"]),
+        output_transform=from_engine(["pred_seg", "label_seg"]),
         save_details=False,
     )
     amount_of_classes = len(labels) if include_background else (len(labels) - 1)
@@ -471,7 +559,7 @@ def get_additional_metrics(labels, include_background=False, loss_kwargs=None, s
     )
     surface_dice_metric_ignite = IgniteMetricHandler(
         metric_fn=surface_dice_metric,
-        output_transform=from_engine(["pred", "label"]),
+        output_transform=from_engine(["pred_seg", "label_seg"]),
         save_details=False,
     )
 
@@ -482,66 +570,6 @@ def get_additional_metrics(labels, include_background=False, loss_kwargs=None, s
     return additional_metrics
 
 
-# def get_test_evaluator(
-#     args,
-#     networks,
-#     inferer,
-#     device,
-#     val_loader,
-#     post_transform,
-#     resume_from="None",
-# ) -> SupervisedEvaluator:
-#     """
-#     Retrieves a supervised evaluator for testing in a MONAI training workflow.
-
-#     Args:
-#         args: Command-line arguments and configuration settings.
-#         network: The model to be evaluated.
-#         inferer: The inference strategy or inferer.
-#         device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
-#         val_loader: The data loader for the validation/testing dataset.
-#         post_transform: Post-processing transformation for the output predictions.
-#         resume_from (str, optional): Path to a checkpoint file to resume training from (default is "None").
-
-#     Returns:
-#         SupervisedEvaluator: An instance of the supervised evaluator for testing.
-
-#     TODO Franzi:
-#         # SupervisedEvaluator and Trainer originate from PyTorch Ignite
-#     """
-#     init(args)
-
-#     evaluator = SupervisedEvaluator(
-#         device=device,
-#         val_data_loader=val_loader,
-#         networks=networks,
-#         inferer=inferer,
-#         postprocessing=post_transform,
-#         amp=args.amp,
-#         val_handlers=get_val_handlers(
-#             sw_roi_size=args.sw_roi_size,
-#             inferer=args.inferer,
-#             gpu_size=args.gpu_size,
-#             garbage_collector=(not args.non_interactive),
-#         ),
-#     )
-
-#     save_dict = {
-#         "net": networks,
-#     }
-
-#     if resume_from != "None":
-#         logger.info(f"{args.gpu}:: Loading Network...")
-#         logger.info(f"{save_dict.keys()=}")
-#         logger.info(f"CWD: {os.getcwd()}")
-#         map_location = device
-#         checkpoint = torch.load(resume_from)
-#         logger.info(f"{checkpoint.keys()=}")
-#         networks.load_state_dict(checkpoint["net"]) 
-#         handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
-#         handler(evaluator)
-
-#     return evaluator
 
 
 def get_supervised_evaluator(
@@ -551,7 +579,6 @@ def get_supervised_evaluator(
     device,
     val_loader,
     loss_function,
-    #click_transforms,
     post_transform,
     key_val_metric,
     additional_metrics,
@@ -584,31 +611,12 @@ def get_supervised_evaluator(
         device=device,
         val_data_loader=val_loader,
         networks=networks,
-        iteration_update=Interaction(
-            deepgrow_probability=args.deepgrow_probability_val,
-            #ransforms=click_transforms,
-            train=False,
-            label_names=args.labels,
-            max_interactions=args.max_val_interactions,
-            save_nifti=args.save_nifti,
-            nifti_dir=args.data_dir,
-            loss_function=loss_function,
-            nifti_post_transform=post_transform,
-            click_generation_strategy=args.val_click_generation,
-            stopping_criterion=args.val_click_generation_stopping_criterion,
-            non_interactive=args.non_interactive,
-            output_dir=args.output_dir,
-            # add extreme points argument TODO Franzi
-        )
-        if not args.non_interactive
-        else None,
         inferer=inferer,
         postprocessing=post_transform,
         amp=args.amp,
         key_val_metric=key_val_metric,
         additional_metrics=additional_metrics,
         val_handlers=get_val_handlers(
-            sw_roi_size=args.sw_roi_size,
             inferer=args.inferer,
             gpu_size=args.gpu_size,
             garbage_collector=True,
@@ -617,54 +625,164 @@ def get_supervised_evaluator(
     return evaluator
 
 
-
-def get_ensemble_evaluator(
-    args, networks, inferer, device, val_loader, post_transform, resume_from="None", nfolds=5
-) -> EnsembleEvaluator:
+def get_supervised_evaluator_ep(
+    args,
+    networks,
+    inferer,
+    device,
+    val_loader,
+    loss_function,
+    post_transform,
+    key_val_metric,
+    additional_metrics,
+) -> SupervisedEvaluatorEp:
     """
-    Retrieves an ensemble evaluator for validation in a MONAI training workflow.
+    Retrieves a supervised evaluator for validation in a MONAI training workflow.
 
     Args:
         args: Command-line arguments and configuration settings.
-        networks: List of neural network models to be evaluated in the ensemble.
-        inferer: The inference strategy or inferer for the ensemble.
+        network: The model to be evaluated.
+        inferer: The inference strategy or inferer.
         device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
         val_loader: The data loader for the validation dataset.
-        post_transform: Post-processing transformation for the ensemble predictions.
-        resume_from (str, optional): Path to a directory containing individual checkpoint files for each network (default is "None").
-        nfolds (int, optional): Number of folds or networks in the ensemble (default is 5).
+        loss_function: The loss function for evaluation.
+        click_transforms: Data transforms for interactions (e.g., clicks).
+        post_transform: Post-processing transformation for the output predictions.
+        key_val_metric: The key validation metric.
+        additional_metrics: Additional metrics for evaluation.
 
     Returns:
-        EnsembleEvaluator: An instance of the ensemble evaluator for validation.
+        SupervisedEvaluator: An instance of the supervised evaluator for validation.
+
+    TODO Franzi:
+        # max_interactions = 1 (all extreme points)
     """
 
     init(args)
 
-    device = torch.device(f"cuda:{args.gpu}")
-    prediction_keys = [f"pred_{i}" for i in range(nfolds)]
-
-    evaluator = EnsembleEvaluator(
+    evaluator = SupervisedEvaluatorEp(
         device=device,
         val_data_loader=val_loader,
         networks=networks,
         inferer=inferer,
         postprocessing=post_transform,
-        pred_keys=prediction_keys,
         amp=args.amp,
+        key_val_metric=key_val_metric,
+        additional_metrics=additional_metrics,
+        val_handlers=get_val_handlers(
+            inferer=args.inferer,
+            gpu_size=args.gpu_size,
+            garbage_collector=True,
+        ),
     )
-
-    if resume_from != "None":
-        logger.info(f"{args.gpu}:: Loading Networks...")
-        logger.info(f"CWD: {os.getcwd()}")
-        resume_path = os.path.abspath(resume_from)
-        logger.info(f"{resume_path=}")
-
-        for i in range(nfolds):
-            file_path = os.path.join(resume_path, f"{i}.pt")
-            logger.info(f"{file_path=}")
-            checkpoint = torch.load(file_path)
-            networks[i].load_state_dict(checkpoint["net"])
     return evaluator
+
+
+def get_supervised_evaluator_dynunet(
+    args,
+    networks,
+    inferer,
+    device,
+    val_loader,
+    loss_function,
+    post_transform,
+    key_val_metric,
+    additional_metrics,
+) -> SupervisedEvaluatorDynUnet:
+    """
+    Retrieves a supervised evaluator for validation in a MONAI training workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        network: The model to be evaluated.
+        inferer: The inference strategy or inferer.
+        device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
+        val_loader: The data loader for the validation dataset.
+        loss_function: The loss function for evaluation.
+        click_transforms: Data transforms for interactions (e.g., clicks).
+        post_transform: Post-processing transformation for the output predictions.
+        key_val_metric: The key validation metric.
+        additional_metrics: Additional metrics for evaluation.
+
+    Returns:
+        SupervisedEvaluator: An instance of the supervised evaluator for validation.
+
+    TODO Franzi:
+        # max_interactions = 1 (all extreme points)
+    """
+
+    init(args)
+
+    evaluator = SupervisedEvaluatorDynUnet(
+        device=device,
+        val_data_loader=val_loader,
+        networks=networks,
+        inferer=inferer,
+        postprocessing=post_transform,
+        amp=args.amp,
+        key_val_metric=key_val_metric,
+        additional_metrics=additional_metrics,
+        val_handlers=get_val_handlers(
+            inferer=args.inferer,
+            gpu_size=args.gpu_size,
+            garbage_collector=True,
+        ),
+    )
+    return evaluator
+
+
+def get_supervised_evaluator_dynunet_da(
+    args,
+    networks,
+    inferer,
+    device,
+    val_loader,
+    loss_function,
+    post_transform,
+    key_val_metric,
+    additional_metrics,
+) -> SupervisedEvaluatorDynUnetDa:
+    """
+    Retrieves a supervised evaluator for validation in a MONAI training workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        network: The model to be evaluated.
+        inferer: The inference strategy or inferer.
+        device: The computing device (e.g., "cuda" or "cpu") on which to run the evaluation.
+        val_loader: The data loader for the validation dataset.
+        loss_function: The loss function for evaluation.
+        click_transforms: Data transforms for interactions (e.g., clicks).
+        post_transform: Post-processing transformation for the output predictions.
+        key_val_metric: The key validation metric.
+        additional_metrics: Additional metrics for evaluation.
+
+    Returns:
+        SupervisedEvaluator: An instance of the supervised evaluator for validation.
+
+    TODO Franzi:
+        # max_interactions = 1 (all extreme points)
+    """
+
+    init(args)
+
+    evaluator = SupervisedEvaluatorDynUnetDa(
+        device=device,
+        val_data_loader=val_loader,
+        networks=networks,
+        inferer=inferer,
+        postprocessing=post_transform,
+        amp=args.amp,
+        key_val_metric=key_val_metric,
+        additional_metrics=additional_metrics,
+        val_handlers=get_val_handlers(
+            inferer=args.inferer,
+            gpu_size=args.gpu_size,
+            garbage_collector=True,
+        ),
+    )
+    return evaluator
+
 
 
 def get_trainer(
@@ -688,24 +806,13 @@ def get_trainer(
     init(args)
     device = torch.device(f"cuda:{args.gpu}") if not args.sw_cpu_output else "cpu"
     sw_device = torch.device(f"cuda:{args.gpu}")
-    pre_transforms_train_ct = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_ct', 'label'), image='image_ct', label='label'))
-    pre_transforms_train_mri = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_mri', 'label'), image='image_mri', label='label'))
-    #pre_transforms_train_mri
-    if args.use_test_data_for_validation:
-        print('not implemented')
-        exit()
-    else:
-        val_loader = get_val_loader(args, pre_transforms_val_ct=pre_transforms_train_ct, pre_transforms_val_mri=pre_transforms_train_mri)
+    pre_transforms_train_source = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_train_target = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+    val_loader = get_val_loader(args, pre_transforms_val_source=pre_transforms_train_source, pre_transforms_val_target=pre_transforms_train_target)
 
-        #val_loader_mri = get_val_loader(args, pre_transforms_val, image_type='MRI')
-        #val_loader = ConcatDataset([val_loader_ct, val_loader_mri])
-
-
-
-    #click_transforms = get_click_transforms(sw_device, args) # TODO Franzi - extreme clicks generation
     post_transform = get_post_transforms(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
 
-    networks = get_network(args.network, args.labels, args.non_interactive, args.no_discriminator)
+    networks = get_network(args.network, args.labels, args.no_discriminator, args.no_extreme_points)
     networks[0] = networks[0].to(sw_device)
     networks[1] = networks[1].to(sw_device)
     if(not args.no_discriminator):
@@ -717,12 +824,16 @@ def get_trainer(
         "include_background": (not args.loss_dont_include_background),
     }
     loss_functions = []
-    loss_functions.append(get_loss_function(loss_args=args.loss_seg, loss_kwargs=loss_kwargs))
+    loss_functions.append(get_loss_function(loss_args=args.loss_ugda, loss_kwargs=loss_kwargs))
     loss_functions.append(get_loss_function(loss_args=args.loss_dis, loss_kwargs=loss_kwargs))
-
+    loss_functions.append(get_loss_function(loss_args=args.loss_dynunet, loss_kwargs=loss_kwargs))
     
-    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
-    lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
+    if (args.no_discriminator):
+        optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
+        lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
+    else:
+        optimizer = get_optimizer(args.optimizer, args.learning_rate_dis, networks)
+        lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
 
     val_key_metric = get_key_metric(str_to_prepend="val_")
     val_additional_metrics = {}
@@ -737,20 +848,14 @@ def get_trainer(
         device=device,
         val_loader=val_loader,
         loss_function=loss_functions,
-        #click_transforms=click_transforms,
         post_transform=post_transform,
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
     )
 
-    pre_transforms_train_ct = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_ct', 'label'), image='image_ct', label='label'))
-    pre_transforms_train_mri = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_mri', 'label'), image='image_mri', label='label'))
-    #pre_transforms_train = Compose([pre_transforms_train_ct, pre_transforms_train_mri])
-    #pre_transforms_train = pre_transforms_train_mri
-    train_loader = get_train_loader(args, pre_transforms_train_ct=pre_transforms_train_ct, pre_transforms_train_mri=pre_transforms_train_mri)
-    #train_loader = train_loader_ct
-    #train_loader_mri = get_train_loader(args, pre_transforms_train_mri, 'MRI)
-    #train_loader = ConcatDataset([train_loader_ct, train_loader_mri])
+    pre_transforms_train_source = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_train_target = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+    train_loader = get_train_loader(args, pre_transforms_train_source=pre_transforms_train_source, pre_transforms_train_target=pre_transforms_train_target)
 
     train_key_metric = get_key_metric(str_to_prepend="train_")
     train_additional_metrics = {}
@@ -764,7 +869,6 @@ def get_trainer(
         evaluator,
         args.val_freq,
         args.eval_only,
-        args.sw_roi_size,
         args.inferer,
         args.gpu_size,
         garbage_collector=True,
@@ -775,26 +879,6 @@ def get_trainer(
         max_epochs=args.epochs,
         train_data_loader=train_loader,
         networks=networks,
-        iteration_update=Interaction(
-            deepgrow_probability=args.deepgrow_probability_train,
-            #transforms=click_transforms,
-            train=True,
-            label_names=args.labels,
-            max_interactions=args.max_train_interactions,
-            save_nifti=args.save_nifti,
-            nifti_dir=args.data_dir,
-            loss_function=loss_functions,
-            nifti_post_transform=post_transform,
-            click_generation_strategy=args.train_click_generation,
-            stopping_criterion=args.train_click_generation_stopping_criterion,
-            iteration_probability=args.train_iteration_probability,
-            loss_stopping_threshold=args.train_loss_stopping_threshold,
-            non_interactive=args.non_interactive,
-            output_dir=args.output_dir,
-
-        )
-        if not args.non_interactive
-        else None,
         optimizer=optimizer,
         loss_function=loss_functions,
         inferer=train_inferer,
@@ -804,6 +888,425 @@ def get_trainer(
         additional_metrics=train_additional_metrics,
         train_handlers=train_handlers,
         no_discriminator=args.no_discriminator,
+        no_extreme_points=args.no_extreme_points,
+    )
+
+    if not args.eval_only:
+            save_dict = {
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
+            }
+    else:
+        save_dict = {
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
+        }
+
+    if ensemble_mode:
+        save_dict = {
+            "net_ep": networks[0],
+            "net_seg": networks[1],
+            "net_dis": networks[2],
+        }
+
+    if not ensemble_mode:
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_interval=args.save_interval,
+            save_final=True,
+            final_filename="checkpoint.pt",
+            save_key_metric=True,
+            n_saved=2,
+            file_prefix="train",
+        ).attach(trainer)
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            save_final=True,
+            save_interval=args.save_interval,
+            final_filename="pretrained_deepedit_" + args.network + "-final.pt",
+        ).attach(evaluator)
+    else:
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            file_prefix=file_prefix,
+        ).attach(evaluator)
+    #print(checkpoint['opt']['param_groups'])
+
+
+    if trainer is not None:
+        trainer.add_event_handler(Events.ITERATION_COMPLETED, TerminateOnNan())
+
+    if resume_from != "None":
+        if args.resume_override_scheduler:
+            # Remove those parts
+            saved_opt = save_dict["opt"]
+            saved_lr = save_dict["lr"]
+            del save_dict["opt"]
+            del save_dict["lr"]
+        logger.info(f"{args.gpu}:: Loading Network...")
+        logger.info(f"{save_dict.keys()=}")
+        map_location = device  # {f"cuda:{args.gpu}": f"cuda:{args.gpu}"}
+        checkpoint = torch.load(resume_from)
+
+        for key in save_dict:
+            # If it fails: the file may be broken or incompatible (e.g. evaluator has not been run)
+            assert (
+                key in checkpoint
+            ), f"key {key} has not been found in the save_dict! \n file keys: {checkpoint.keys()}"
+
+        logger.critical("!!!!!!!!!!!!!!!!!!!! RESUMING !!!!!!!!!!!!!!!!!!!!!!!!!")
+        handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
+        print(checkpoint['opt']['param_groups'])
+        if trainer is not None:
+            handler(trainer)
+        else:
+            handler(evaluator)
+
+        # if args.resume_override_scheduler:
+        #     # Restore params
+        #     save_dict["opt"] = saved_opt
+        #     save_dict["lr"] = saved_lr
+
+        for param_group in optimizer.param_groups:
+            print(f"Learning Rate: {param_group['lr']}")
+
+    return trainer, evaluator, train_key_metric, train_additional_metrics, val_key_metric, val_additional_metrics
+
+
+
+
+def get_trainer_dynunet_da(
+    args, file_prefix="", ensemble_mode: bool = False, resume_from="None"
+) -> List[SupervisedTrainerDynUnetDa | None, SupervisedEvaluatorDynUnetDa | None, List]:
+    """
+    Retrieves a supervised trainer, evaluator, and related metrics for training in a MONAI deep learning workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        file_prefix (str, optional): Prefix to use for saving ensemble checkpoints (default is "").
+        ensemble_mode (bool, optional): Flag indicating whether to run in ensemble mode (default is False).
+        resume_from (str, optional): Path to a checkpoint file for resuming training (default is "None").
+
+    Returns:
+        Tuple[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
+        - SupervisedTrainer: The trainer instance for training the neural network.
+        - SupervisedEvaluator: The evaluator instance for validation during training.
+        - List: List containing training key metric, additional metrics, validation key metric, and additional metrics.
+    """
+    init(args)
+    device = torch.device(f"cuda:{args.gpu}") if not args.sw_cpu_output else "cpu"
+    sw_device = torch.device(f"cuda:{args.gpu}")
+    pre_transforms_val_source = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_val_target = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+
+    val_loader_source = get_val_loader_separate(args, pre_transforms_val=pre_transforms_val_source, dataset='source')
+    val_loader_target = get_val_loader_separate(args, pre_transforms_val=pre_transforms_val_target, dataset='target')
+
+    post_transform = get_post_transforms_dynunet(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
+
+    networks = get_network(args.network, args.labels, no_discriminator=True, no_extreme_points=True)
+    networks[1] = networks[1].to(sw_device)
+    train_inferer, eval_inferer = get_inferers()
+
+    loss_kwargs = {
+        "squared_pred": (not args.loss_no_squared_pred),
+        "include_background": (not args.loss_dont_include_background),
+    }
+    loss_functions = get_loss_function(loss_args=args.loss_dynunet, loss_kwargs=loss_kwargs)
+    
+    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
+    lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
+
+    val_key_metric = get_key_metric_seg(str_to_prepend="val_")
+    val_additional_metrics = {}
+    if args.additional_metrics:
+        val_additional_metrics = get_additional_metrics(
+            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="val_"
+        )
+    evaluator_source = get_supervised_evaluator_dynunet_da(
+        args,
+        networks=networks,
+        inferer=eval_inferer,
+        device=device,
+        val_loader=val_loader_source,
+        loss_function=loss_functions,
+        post_transform=post_transform,
+        key_val_metric=val_key_metric,
+        additional_metrics=val_additional_metrics,
+    )
+
+    evaluator_target = get_supervised_evaluator_dynunet_da(
+        args,
+        networks=networks,
+        inferer=eval_inferer,
+        device=device,
+        val_loader=val_loader_target,
+        loss_function=loss_functions,
+        post_transform=post_transform,
+        key_val_metric=val_key_metric,
+        additional_metrics=val_additional_metrics,
+    )
+
+    pre_transforms_train_source = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_train_target = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+    train_loader = get_train_loader_separate(args, pre_transforms_train_source=pre_transforms_train_source, pre_transforms_train_target=pre_transforms_train_target)
+
+
+    train_key_metric = get_key_metric_seg(str_to_prepend="train_")
+    train_additional_metrics = {}
+    if args.additional_metrics:
+        train_additional_metrics = get_additional_metrics(
+            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="train_"
+        )
+
+    train_handlers = get_train_handlers_separate(
+        lr_scheduler,
+        evaluator_source,
+        evaluator_target,
+        args.val_freq,
+        args.eval_only,
+        args.inferer,
+        args.gpu_size,
+        garbage_collector=True,
+    )
+
+    trainer = SupervisedTrainerDynUnetDa(
+        device=device,
+        max_epochs=args.epochs,
+        train_data_loader=train_loader,
+        networks=networks,
+        optimizer=optimizer,
+        loss_function=loss_functions,
+        inferer=train_inferer,
+        postprocessing=post_transform,
+        amp=args.amp,
+        key_train_metric=train_key_metric,
+        additional_metrics=train_additional_metrics,
+        train_handlers=train_handlers,
+        no_discriminator=args.no_discriminator,
+        no_extreme_points=args.no_extreme_points,
+    )
+
+    if not args.eval_only:
+            save_dict = {
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
+            }
+    else:
+        save_dict = {
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
+        }
+
+    if ensemble_mode:
+        save_dict = {
+            "net_ep": networks[0],
+            "net_seg": networks[1],
+            "net_dis": networks[2],
+        }
+
+    if not ensemble_mode:
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_interval=args.save_interval,
+            save_final=True,
+            final_filename="checkpoint.pt",
+            save_key_metric=True,
+            n_saved=2,
+            file_prefix="train",
+        ).attach(trainer)
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            save_final=True,
+            save_interval=args.save_interval,
+            final_filename="pretrained_deepedit_source" + args.network + "-final.pt",
+        ).attach(evaluator_source)
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            save_final=True,
+            save_interval=args.save_interval,
+            final_filename="pretrained_deepedit_target" + args.network + "-final.pt",
+        ).attach(evaluator_target)
+    else:
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            file_prefix=file_prefix,
+        ).attach(evaluator_source)
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            file_prefix=file_prefix,
+        ).attach(evaluator_target)
+    #print(checkpoint['opt']['param_groups'])
+
+
+    if trainer is not None:
+        trainer.add_event_handler(Events.ITERATION_COMPLETED, TerminateOnNan())
+
+    if resume_from != "None":
+        if args.resume_override_scheduler:
+            # Remove those parts
+            saved_opt = save_dict["opt"]
+            saved_lr = save_dict["lr"]
+            del save_dict["opt"]
+            del save_dict["lr"]
+        logger.info(f"{args.gpu}:: Loading Network...")
+        logger.info(f"{save_dict.keys()=}")
+        map_location = device  # {f"cuda:{args.gpu}": f"cuda:{args.gpu}"}
+        checkpoint = torch.load(resume_from)
+
+        for key in save_dict:
+            # If it fails: the file may be broken or incompatible (e.g. evaluator has not been run)
+            assert (
+                key in checkpoint
+            ), f"key {key} has not been found in the save_dict! \n file keys: {checkpoint.keys()}"
+
+        logger.critical("!!!!!!!!!!!!!!!!!!!! RESUMING !!!!!!!!!!!!!!!!!!!!!!!!!")
+        handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
+        print(checkpoint['opt']['param_groups'])
+        if trainer is not None:
+            handler(trainer)
+        else:
+            handler(evaluator_source)
+            handler(evaluator_target)
+
+        # if args.resume_override_scheduler:
+        #     # Restore params
+        #     save_dict["opt"] = saved_opt
+        #     save_dict["lr"] = saved_lr
+
+        for param_group in optimizer.param_groups:
+            print(f"Learning Rate: {param_group['lr']}")
+
+    return trainer, [evaluator_source, evaluator_target], train_key_metric, train_additional_metrics, val_key_metric, val_additional_metrics
+
+
+def get_trainer_ep(
+    args, file_prefix="", ensemble_mode: bool = False, resume_from="None"
+) -> List[SupervisedTrainerEp | None, SupervisedEvaluatorEp | None, List]:
+    """
+    Retrieves a supervised trainer, evaluator, and related metrics for training in a MONAI deep learning workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        file_prefix (str, optional): Prefix to use for saving ensemble checkpoints (default is "").
+        ensemble_mode (bool, optional): Flag indicating whether to run in ensemble mode (default is False).
+        resume_from (str, optional): Path to a checkpoint file for resuming training (default is "None").
+
+    Returns:
+        Tuple[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
+        - SupervisedTrainer: The trainer instance for training the neural network.
+        - SupervisedEvaluator: The evaluator instance for validation during training.
+        - List: List containing training key metric, additional metrics, validation key metric, and additional metrics.
+    """
+    init(args)
+    device = torch.device(f"cuda:{args.gpu}") if not args.sw_cpu_output else "cpu"
+    sw_device = torch.device(f"cuda:{args.gpu}")
+    pre_transforms_train_source = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_train_target = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+
+    val_loader = get_val_loader(args, pre_transforms_val_source=pre_transforms_train_source, pre_transforms_val_target=pre_transforms_train_target)
+
+    post_transform = get_post_transforms_ep(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
+
+    networks = get_network(network_str=args.network, labels=args.labels, no_discriminator=True, no_extreme_points=False)
+    networks[0] = networks[0].to(sw_device)
+    train_inferer, eval_inferer = get_inferers()
+
+    loss_kwargs = {
+        "squared_pred": (not args.loss_no_squared_pred),
+        "include_background": (not args.loss_dont_include_background),
+    }
+    loss_functions =  get_loss_function(loss_args=args.loss_mse, loss_kwargs=loss_kwargs)
+    
+    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
+    lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
+
+
+    val_key_metric = get_key_metric_ep(str_to_prepend="val_")
+    val_additional_metrics = {}
+    if args.additional_metrics:
+        val_additional_metrics = get_additional_metrics(
+            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="val_"
+        )
+    evaluator = get_supervised_evaluator_ep(
+        args,
+        networks=networks,
+        inferer=eval_inferer,
+        device=device,
+        val_loader=val_loader,
+        loss_function=loss_functions,
+        post_transform=post_transform,
+        key_val_metric=val_key_metric,
+        additional_metrics=val_additional_metrics,
+    )
+
+    pre_transforms_train_source = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_train_target = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+    train_loader = get_train_loader(args, pre_transforms_train_source=pre_transforms_train_source, pre_transforms_train_target=pre_transforms_train_target)
+
+
+    train_key_metric = get_key_metric_ep(str_to_prepend="train_")
+    train_additional_metrics = {}
+    if args.additional_metrics:
+        train_additional_metrics = get_additional_metrics(
+            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="train_"
+        )
+
+    train_handlers = get_train_handlers(
+        lr_scheduler,
+        evaluator,
+        args.val_freq,
+        args.eval_only,
+        args.inferer,
+        args.gpu_size,
+        garbage_collector=True,
+    )
+
+    trainer = SupervisedTrainerEp(
+        device=device,
+        max_epochs=args.epochs,
+        train_data_loader=train_loader,
+        networks=networks,
+        optimizer=optimizer,
+        loss_function=loss_functions,
+        inferer=train_inferer,
+        postprocessing=post_transform,
+        amp=args.amp,
+        key_train_metric=train_key_metric,
+        additional_metrics=train_additional_metrics,
+        train_handlers=train_handlers,
+        no_discriminator=args.no_discriminator,
+        no_extreme_points=args.no_extreme_points,
     )
 
     if not args.eval_only:
@@ -896,6 +1399,216 @@ def get_trainer(
             save_dict["lr"] = saved_lr
 
     return trainer, evaluator, train_key_metric, train_additional_metrics, val_key_metric, val_additional_metrics
+
+
+
+def get_trainer_dynunet(
+    args, file_prefix="", ensemble_mode: bool = False, resume_from="None"
+) -> List[SupervisedTrainerDynUnet | None, SupervisedEvaluatorDynUnet | None, List]:
+    """
+    Retrieves a supervised trainer, evaluator, and related metrics for training in a MONAI deep learning workflow.
+
+    Args:
+        args: Command-line arguments and configuration settings.
+        file_prefix (str, optional): Prefix to use for saving ensemble checkpoints (default is "").
+        ensemble_mode (bool, optional): Flag indicating whether to run in ensemble mode (default is False).
+        resume_from (str, optional): Path to a checkpoint file for resuming training (default is "None").
+
+    Returns:
+        Tuple[SupervisedTrainer | None, SupervisedEvaluator | None, List]:
+        - SupervisedTrainer: The trainer instance for training the neural network.
+        - SupervisedEvaluator: The evaluator instance for validation during training.
+        - List: List containing training key metric, additional metrics, validation key metric, and additional metrics.
+    """
+    init(args)
+    device = torch.device(f"cuda:{args.gpu}") if not args.sw_cpu_output else "cpu"
+    sw_device = torch.device(f"cuda:{args.gpu}")
+    pre_transforms_val_source = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_val_target = Compose(get_pre_transforms_val_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+
+    val_loader_1 = get_val_loader_separate(args, pre_transforms_val=pre_transforms_val_source, dataset='source')
+    val_loader_2 = get_val_loader_separate(args, pre_transforms_val=pre_transforms_val_target, dataset='target')
+
+    post_transform = get_post_transforms_dynunet(args.labels, save_pred=args.save_pred, output_dir=args.output_dir)
+
+    networks = get_network(args.network, args.labels, no_discriminator=True, no_extreme_points=True)
+    networks[1] = networks[1].to(sw_device)
+    train_inferer, eval_inferer = get_inferers()
+
+    loss_kwargs = {
+        "squared_pred": (not args.loss_no_squared_pred),
+        "include_background": (not args.loss_dont_include_background),
+    }
+    loss_functions = get_loss_function(loss_args=args.loss_dynunet, loss_kwargs=loss_kwargs)
+    
+
+    optimizer = get_optimizer(args.optimizer, args.learning_rate, networks)
+    lr_scheduler = get_scheduler(optimizer, args.scheduler, args.epochs)
+
+
+    val_key_metric = get_key_metric_seg(str_to_prepend="val_")
+    val_additional_metrics = {}
+    if args.additional_metrics:
+        val_additional_metrics = get_additional_metrics(
+            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="val_"
+        )
+    evaluator_1 = get_supervised_evaluator_dynunet(
+        args,
+        networks=networks,
+        inferer=eval_inferer,
+        device=device,
+        val_loader=val_loader_1,
+        loss_function=loss_functions,
+        post_transform=post_transform,
+        key_val_metric=val_key_metric,
+        additional_metrics=val_additional_metrics,
+    )
+    evaluator_2 = get_supervised_evaluator_dynunet(
+        args,
+        networks=networks,
+        inferer=eval_inferer,
+        device=device,
+        val_loader=val_loader_2,
+        loss_function=loss_functions,
+        post_transform=post_transform,
+        key_val_metric=val_key_metric,
+        additional_metrics=val_additional_metrics,
+    )
+
+    pre_transforms_val_source = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_source', 'label'), image='image_source', label='label'))
+    pre_transforms_val_target = Compose(get_pre_transforms_train_as_list(args.labels, device, args, input_keys=('image_target', 'label'), image='image_target', label='label'))
+    train_loader = get_train_loader(args, pre_transforms_train_source=pre_transforms_val_source, pre_transforms_train_target=pre_transforms_val_target)
+
+
+    train_key_metric = get_key_metric_seg(str_to_prepend="train_")
+    train_additional_metrics = {}
+    if args.additional_metrics:
+        train_additional_metrics = get_additional_metrics(
+            args.labels, include_background=False, loss_kwargs=loss_kwargs, str_to_prepend="train_"
+        )
+
+    train_handlers = get_train_handlers_separate(
+        lr_scheduler,
+        evaluator_1,
+        evaluator_2,
+        args.val_freq,
+        args.eval_only,
+        args.inferer,
+        args.gpu_size,
+        garbage_collector=True,
+    )
+
+    trainer = SupervisedTrainerDynUnet(
+        device=device,
+        max_epochs=args.epochs,
+        train_data_loader=train_loader,
+        networks=networks,
+        optimizer=optimizer,
+        loss_function=loss_functions,
+        inferer=train_inferer,
+        postprocessing=post_transform,
+        amp=args.amp,
+        key_train_metric=train_key_metric,
+        additional_metrics=train_additional_metrics,
+        train_handlers=train_handlers,
+        no_discriminator=args.no_discriminator,
+        no_extreme_points=args.no_extreme_points,
+    )
+
+    if not args.eval_only:
+            save_dict = {
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
+            }
+    else:
+        save_dict = {
+                "trainer": trainer,
+                "net_ep": networks[0],
+                "net_seg": networks[1],
+                "net_dis": networks[2],
+                "opt": optimizer,
+                "lr": lr_scheduler,
+        }
+
+    if ensemble_mode:
+        save_dict = {
+            "net_ep": networks[0],
+            "net_seg": networks[1],
+            "net_dis": networks[2],
+        }
+
+    if not ensemble_mode:
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_interval=args.save_interval,
+            save_final=True,
+            final_filename="checkpoint.pt",
+            save_key_metric=True,
+            n_saved=2,
+            file_prefix="train",
+        ).attach(trainer)
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            save_final=True,
+            save_interval=args.save_interval,
+            final_filename=f"pretrained_deepedit_{args.source_dataset}" + args.network + "-final.pt",
+        ).attach(evaluator_1)
+        CheckpointSaver(
+            save_dir=args.output_dir,
+            save_dict=save_dict,
+            save_key_metric=True,
+            save_final=True,
+            save_interval=args.save_interval,
+            final_filename=f"pretrained_deepedit_{args.target_dataset}" + args.network + "-final.pt",
+        ).attach(evaluator_2)
+
+    #print(checkpoint['opt']['param_groups'])
+
+
+    if trainer is not None:
+        trainer.add_event_handler(Events.ITERATION_COMPLETED, TerminateOnNan())
+
+    if resume_from != "None":
+        if args.resume_override_scheduler:
+            # Remove those parts
+            saved_opt = save_dict["opt"]
+            saved_lr = save_dict["lr"]
+            del save_dict["opt"]
+            del save_dict["lr"]
+        logger.info(f"{args.gpu}:: Loading Network...")
+        logger.info(f"{save_dict.keys()=}")
+        map_location = device  # {f"cuda:{args.gpu}": f"cuda:{args.gpu}"}
+        checkpoint = torch.load(resume_from)
+
+        for key in save_dict:
+            # If it fails: the file may be broken or incompatible (e.g. evaluator has not been run)
+            assert (
+                key in checkpoint
+            ), f"key {key} has not been found in the save_dict! \n file keys: {checkpoint.keys()}"
+
+        logger.critical("!!!!!!!!!!!!!!!!!!!! RESUMING !!!!!!!!!!!!!!!!!!!!!!!!!")
+        handler = CheckpointLoader(load_path=resume_from, load_dict=save_dict, map_location=map_location)
+        print(checkpoint['opt']['param_groups'])
+        if trainer is not None:
+            handler(trainer)
+        else:
+            handler(evaluator_1)
+            handler(evaluator_2)
+
+        # if args.resume_override_scheduler:
+        #     # Restore params
+        #     save_dict["opt"] = saved_opt
+        #     save_dict["lr"] = saved_lr
+
+    return trainer, [evaluator_1, evaluator_2], train_key_metric, train_additional_metrics, val_key_metric, val_additional_metrics
+
 
 
 @run_once

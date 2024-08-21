@@ -32,7 +32,6 @@ else:
 __all__ = [
     "IterationEvents",
     "get_devices_spec",
-    "default_prepare_batch",
     "PrepareBatch",
     "PrepareBatchDefault",
     "PrepareBatchExtraInput",
@@ -81,16 +80,19 @@ def default_prepare_batch(
 
         raise AssertionError("Default prepare_batch expects a single tensor, a tensor pair, or dictionary input data.")
 
-    if isinstance(batchdata.get(CommonKeys.IMAGE_CT), torch.Tensor):
+    if isinstance(batchdata.get(CommonKeys.IMAGE_SOURCE), torch.Tensor):
         return (
-            batchdata[CommonKeys.IMAGE_CT].to(device=device, non_blocking=non_blocking, **kwargs),
-            batchdata[CommonKeys.LABEL].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.IMAGE_SOURCE].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.LABEL_SEG].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.LABEL_EP].to(device=device, non_blocking=non_blocking, **kwargs),
+
 
         )
-    if isinstance(batchdata.get(CommonKeys.IMAGE_MRI), torch.Tensor):
+    if isinstance(batchdata.get(CommonKeys.IMAGE_TARGET), torch.Tensor):
         return (
-            batchdata[CommonKeys.IMAGE_MRI].to(device=device, non_blocking=non_blocking, **kwargs),
-            batchdata[CommonKeys.LABEL].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.IMAGE_TARGET].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.LABEL_SEG].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.LABEL_EP].to(device=device, non_blocking=non_blocking, **kwargs),
 
         )
 
@@ -98,6 +100,6 @@ def default_prepare_batch(
         return batchdata[GanKeys.REALS].to(device=device, non_blocking=non_blocking, **kwargs)
 
     return (
-            batchdata[CommonKeys.IMAGE_CT].to(device=device, non_blocking=non_blocking, **kwargs),
-            batchdata[CommonKeys.IMAGE_MRI].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.IMAGE_SOURCE].to(device=device, non_blocking=non_blocking, **kwargs),
+            batchdata[CommonKeys.IMAGE_TARGET].to(device=device, non_blocking=non_blocking, **kwargs),
         )

@@ -18,7 +18,7 @@ import traceback
 import warnings
 
 import numpy as np
-#import cv2
+import cv2
 import torch
 
 import monai
@@ -35,6 +35,7 @@ from monai.data.folder_layout import default_name_formatter, FolderLayout, Folde
 
 from monai.config import DtypeLike, NdarrayOrTensor, PathLike
 from monai.data import image_writer
+from monai.data.meta_obj import get_track_meta
 from monai.data.folder_layout import FolderLayout, FolderLayoutBase, default_name_formatter
 from monai.data.image_reader import (
     ImageReader,
@@ -52,6 +53,10 @@ from monai.transforms.utility.array import EnsureChannelFirst
 from monai.utils import GridSamplePadMode
 from monai.utils import ImageMetaKey as Key
 from monai.utils import OptionalImportError, convert_to_dst_type, ensure_tuple, look_up_option, optional_import
+
+from monai.utils import TransformBackends, convert_data_type, convert_to_tensor, ensure_tuple, look_up_option
+
+
 
 __all__ = ["LoadImaged", "LoadImageD", "LoadImageDict", "SaveImaged", "SaveImageD", "SaveImageDict"]
 
@@ -82,6 +87,9 @@ from monai.transforms import (
     LazyTransform,
     InvertibleTransform,
     Flip,
+)
+from monai.transforms.post.array import (
+    AsDiscrete,
 )
 
 from collections.abc import Hashable, Mapping, Sequence
@@ -210,8 +218,16 @@ def get_extreme_points(
         rand_state = np.random.random.__self__  # type: ignore
 
     #image is label (0,1), get indices where label is not background
+    #print('img', img.shape)
+    #print('unique img', torch.unique(img))
+
     indices = where(img != background)
 
+    #npindices = np.array(indices)
+    #print('indices', npindices.shape)
+    #print('unique', np.unique(npindices))
+
+    #indices[0] is x-axis, indices[1] is y-axis, indices[2] is z-axis
     if np.size(indices[0]) == 0:
         raise ValueError("get_extreme_points: no foreground object in mask!")
 
@@ -223,6 +239,7 @@ def get_extreme_points(
             val : value for comparison
             dim : dimension in which to look for value
         """
+
         idx = where(indices[dim] == val)[0]
 
         idx = idx.cpu() if isinstance(idx, torch.Tensor) else idx
@@ -240,9 +257,6 @@ def get_extreme_points(
     for i in range(img.ndim):
         points.append(tuple(_get_point(indices[i].min(), i)))
         points.append(tuple(_get_point(indices[i].max(), i)))
-    
- 
-       
 
     return points
 
@@ -305,17 +319,241 @@ class AddEmptySignalChannelsLabel(MapTransform):
         return data
 
 
-class NormalizeLabelsInDatasetd(MapTransform):
+
+class AsDiscreted(MapTransform):
     """
-    Normalize label values according to label names dictionary
+    Dictionary-based wrapper of :py:class:`monai.transforms.AsDiscrete`.
+    """
+
+    backend = AsDiscrete.backend
+
+    def __init__(
+        self,
+        keys: KeysCollection,
+        argmax: Sequence[bool] | bool = False,
+        to_onehot: Sequence[int | None] | int | None = None,
+        threshold: Sequence[float | None] | float | None = None,
+        rounding: Sequence[str | None] | str | None = None,
+        allow_missing_keys: bool = False,
+        **kwargs,
+    ) -> None:
+        """
+        Args:
+            keys: keys of the corresponding items to model output and label.
+                See also: :py:class:`monai.transforms.compose.MapTransform`
+            argmax: whether to execute argmax function on input data before transform.
+                it also can be a sequence of bool, each element corresponds to a key in ``keys``.
+            to_onehot: if not None, convert input data into the one-hot format with specified number of classes.
+                defaults to ``None``. it also can be a sequence, each element corresponds to a key in ``keys``.
+            threshold: if not None, threshold the float values to int number 0 or 1 with specified threshold value.
+                defaults to ``None``. it also can be a sequence, each element corresponds to a key in ``keys``.
+            rounding: if not None, round the data according to the specified option,
+                available options: ["torchrounding"]. it also can be a sequence of str or None,
+                each element corresponds to a key in ``keys``.
+            allow_missing_keys: don't raise exception if key is missing.
+            kwargs: additional parameters to ``AsDiscrete``.
+                ``dim``, ``keepdim``, ``dtype`` are supported, unrecognized parameters will be ignored.
+                These default to ``0``, ``True``, ``torch.float`` respectively.
+
+        """
+        super().__init__(keys, allow_missing_keys)
+        self.argmax = ensure_tuple_rep(argmax, len(self.keys))
+        self.to_onehot = []
+        for flag in ensure_tuple_rep(to_onehot, len(self.keys)):
+            if isinstance(flag, bool):
+                raise ValueError("`to_onehot=True/False` is deprecated, please use `to_onehot=num_classes` instead.")
+            self.to_onehot.append(flag)
+
+        self.threshold = []
+        for flag in ensure_tuple_rep(threshold, len(self.keys)):
+            if isinstance(flag, bool):
+                raise ValueError("`threshold_values=True/False` is deprecated, please use `threshold=value` instead.")
+            self.threshold.append(flag)
+
+        self.rounding = ensure_tuple_rep(rounding, len(self.keys))
+        self.converter = AsDiscrete()
+        self.converter.kwargs = kwargs
+
+    def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> dict[Hashable, NdarrayOrTensor]:
+        d = dict(data)
+        for key, argmax, to_onehot, threshold, rounding in self.key_iterator(
+            d, self.argmax, self.to_onehot, self.threshold, self.rounding
+        ):
+            d[key] = self.converter(d[key], argmax, to_onehot, threshold, rounding)
+        return d
+    
+
+class AsDiscrete(Transform):
+    """
+    Convert the input tensor/array into discrete values, possible operations are:
+
+        -  `argmax`.
+        -  threshold input value to binary values.
+        -  convert input value to One-Hot format (set ``to_one_hot=N``, `N` is the number of classes).
+        -  round the value to the closest integer.
 
     Args:
-        keys: the ``keys`` parameter will be used to get and set the actual data item to transform
-        labels: all label names
-        allow_missing_keys: whether to ignore it if keys are missing.
-        device: device this transform shall run on
+        argmax: whether to execute argmax function on input data before transform.
+            Defaults to ``False``.
+        to_onehot: if not None, convert input data into the one-hot format with specified number of classes.
+            Defaults to ``None``.
+        threshold: if not None, threshold the float values to int number 0 or 1 with specified threshold.
+            Defaults to ``None``.
+        rounding: if not None, round the data according to the specified option,
+            available options: ["torchrounding"].
+        kwargs: additional parameters to `torch.argmax`, `monai.networks.one_hot`.
+            currently ``dim``, ``keepdim``, ``dtype`` are supported, unrecognized parameters will be ignored.
+            These default to ``0``, ``True``, ``torch.float`` respectively.
 
-    Returns: data and also the new labels will be stored in data with key LABELS_KEY
+    Example:
+
+        >>> transform = AsDiscrete(argmax=True)
+        >>> print(transform(np.array([[[0.0, 1.0]], [[2.0, 3.0]]])))
+        # [[[1.0, 1.0]]]
+
+        >>> transform = AsDiscrete(threshold=0.6)
+        >>> print(transform(np.array([[[0.0, 0.5], [0.8, 3.0]]])))
+        # [[[0.0, 0.0], [1.0, 1.0]]]
+
+        >>> transform = AsDiscrete(argmax=True, to_onehot=2, threshold=0.5)
+        >>> print(transform(np.array([[[0.0, 1.0]], [[2.0, 3.0]]])))
+        # [[[0.0, 0.0]], [[1.0, 1.0]]]
+
+    """
+
+    backend = [TransformBackends.TORCH]
+
+    def __init__(
+        self,
+        argmax: bool = False,
+        to_onehot: int | None = None,
+        threshold: float | None = None,
+        rounding: str | None = None,
+        **kwargs,
+    ) -> None:
+        self.argmax = argmax
+        if isinstance(to_onehot, bool):  # for backward compatibility
+            raise ValueError("`to_onehot=True/False` is deprecated, please use `to_onehot=num_classes` instead.")
+        self.to_onehot = to_onehot
+        self.threshold = threshold
+        self.rounding = rounding
+        self.kwargs = kwargs
+
+    def __call__(
+        self,
+        img: NdarrayOrTensor,
+        argmax: bool | None = None,
+        to_onehot: int | None = None,
+        threshold: float | None = None,
+        rounding: str | None = None,
+    ) -> NdarrayOrTensor:
+        """
+        Args:
+            img: the input tensor data to convert, if no channel dimension when converting to `One-Hot`,
+                will automatically add it.
+            argmax: whether to execute argmax function on input data before transform.
+                Defaults to ``self.argmax``.
+            to_onehot: if not None, convert input data into the one-hot format with specified number of classes.
+                Defaults to ``self.to_onehot``.
+            threshold: if not None, threshold the float values to int number 0 or 1 with specified threshold value.
+                Defaults to ``self.threshold``.
+            rounding: if not None, round the data according to the specified option,
+                available options: ["torchrounding"].
+
+        """
+        if isinstance(to_onehot, bool):
+            raise ValueError("`to_onehot=True/False` is deprecated, please use `to_onehot=num_classes` instead.")
+        img = convert_to_tensor(img, track_meta=get_track_meta())
+        img_t, *_ = convert_data_type(img, torch.Tensor)
+        if argmax or self.argmax:
+            img_t = torch.argmax(img_t, dim=self.kwargs.get("dim", 0), keepdim=self.kwargs.get("keepdim", True))
+
+        to_onehot = self.to_onehot if to_onehot is None else to_onehot
+        if to_onehot is not None:
+            if not isinstance(to_onehot, int):
+                raise ValueError(f"the number of classes for One-Hot must be an integer, got {type(to_onehot)}.")
+            img_t = one_hot(
+                img_t, num_classes=to_onehot, dim=self.kwargs.get("dim", 0), dtype=self.kwargs.get("dtype", torch.float)
+            )
+
+        threshold = self.threshold if threshold is None else threshold
+        if threshold is not None:
+            img_t = img_t >= threshold
+
+        rounding = self.rounding if rounding is None else rounding
+        if rounding is not None:
+            look_up_option(rounding, ["torchrounding"])
+            img_t = torch.round(img_t)
+
+        img, *_ = convert_to_dst_type(img_t, img, dtype=self.kwargs.get("dtype", torch.float))
+        return img
+    
+
+
+def one_hot(labels: torch.Tensor, num_classes: int, dtype: torch.dtype = torch.float, dim: int = 1) -> torch.Tensor:
+    """
+    For every value v in `labels`, the value in the output will be either 1 or 0. Each vector along the `dim`-th
+    dimension has the "one-hot" format, i.e., it has a total length of `num_classes`,
+    with a one and `num_class-1` zeros.
+    Note that this will include the background label, thus a binary mask should be treated as having two classes.
+
+    Args:
+        labels: input tensor of integers to be converted into the 'one-hot' format. Internally `labels` will be
+            converted into integers `labels.long()`.
+        num_classes: number of output channels, the corresponding length of `labels[dim]` will be converted to
+            `num_classes` from `1`.
+        dtype: the data type of the output one_hot label.
+        dim: the dimension to be converted to `num_classes` channels from `1` channel, should be non-negative number.
+
+    Example:
+
+    For a tensor `labels` of dimensions [B]1[spatial_dims], return a tensor of dimensions `[B]N[spatial_dims]`
+    when `num_classes=N` number of classes and `dim=1`.
+
+    .. code-block:: python
+
+        from monai.networks.utils import one_hot
+        import torch
+
+        a = torch.randint(0, 2, size=(1, 2, 2, 2))
+        out = one_hot(a, num_classes=2, dim=0)
+        print(out.shape)  # torch.Size([2, 2, 2, 2])
+
+        a = torch.randint(0, 2, size=(2, 1, 2, 2, 2))
+        out = one_hot(a, num_classes=2, dim=1)
+        print(out.shape)  # torch.Size([2, 2, 2, 2, 2])
+
+    """
+
+    # if `dim` is bigger, add singleton dim at the end
+    if labels.ndim < dim + 1:
+        shape = list(labels.shape) + [1] * (dim + 1 - len(labels.shape))
+        labels = torch.reshape(labels, shape)
+
+    sh = list(labels.shape)
+
+    # if sh[dim] != 1:
+    #     raise AssertionError("labels should have a channel with length equal to one.")
+
+    sh[dim] = num_classes
+
+    o = torch.zeros(size=sh, dtype=dtype, device=labels.device)
+    labels = o.scatter_(dim=dim, index=labels.long(), value=1)
+
+    return labels
+
+class NormalizeLabelsInDatasetd(MapTransform):
+    """
+    Normalize label values according to the label names dictionary.
+
+    Args:
+        keys: the ``keys`` parameter will be used to get and set the actual data item to transform.
+        labels: dictionary mapping label names to label values.
+        allow_missing_keys: whether to ignore it if keys are missing.
+        device: device this transform shall run on.
+
+    Returns:
+        The transformed data with the new label mapping stored under the key LABELS_KEY.
     """
     def __init__(
         self,
@@ -329,42 +567,114 @@ class NormalizeLabelsInDatasetd(MapTransform):
         self.device = device
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        # Set the labels dict in case no labels were provided
+        # Set the labels dict if no labels were provided
         data[LABELS_KEY] = self.labels
-
+        #print('label unique_0', torch.unique(data['label']))
         for key in self.key_iterator(data):
             if "label" in key:
-                try:
-                    label = data[key]
-                    if isinstance(label, str):
-                        # Special case since label has been defined to be a string in MONAILabel
-                        raise AttributeError
-                except AttributeError:
-                    # label does not exist - this might be a validation run
-                    break
+                label = data[key]
+                if isinstance(label, str):
+                    raise AttributeError("Label is expected to be a tensor, but is a string.")
 
-                # Dictionary containing new label numbers
-                new_labels = {}
-                label = torch.zeros(data[key].shape, device=self.device)
-                # Making sure the range values and number of labels are the same
+                # Initialize a dictionary to store new label numbers
+                new_labels = {"background": 0}
+                
+                # Create a tensor to store normalized labels
+                normalized_label = torch.zeros_like(label, device=self.device)
+
+                # Assign new labels based on the provided dictionary
+                #print('label unique_1', torch.unique(label))
                 for idx, (key_label, val_label) in enumerate(self.labels.items(), start=1):
+                    #print("key label", key_label, idx)
                     if key_label != "background":
                         new_labels[key_label] = idx
-                        label[data[key] == val_label] = idx
-                    if key_label == "background":
-                        new_labels["background"] = 0
-                    else:
-                        new_labels[key_label] = idx
-                        label[data[key] == val_label] = idx
+                        normalized_label[label == val_label] = idx
+                #print('label unique_2', torch.unique(normalized_label))
 
+                # Store the new labels dictionary
                 data[LABELS_KEY] = new_labels
+
+                # Update the label tensor
                 if isinstance(data[key], MetaTensor):
-                    data[key].array = label
+                    data[key].array = normalized_label
                 else:
-                    data[key] = label
+                    data[key] = normalized_label
             else:
-                raise UserWarning("Only the key label is allowed here!")
+                raise UserWarning("Only keys containing 'label' are allowed here!")
+
         return data
+
+
+
+
+# class NormalizeLabelsInDatasetd(MapTransform):
+#     """
+#     Normalize label values according to label names dictionary
+
+#     Args:
+#         keys: the ``keys`` parameter will be used to get and set the actual data item to transform
+#         labels: all label names
+#         allow_missing_keys: whether to ignore it if keys are missing.
+#         device: device this transform shall run on
+
+#     Returns: data and also the new labels will be stored in data with key LABELS_KEY
+#     """
+#     def __init__(
+#         self,
+#         keys: KeysCollection,
+#         labels=None,
+#         allow_missing_keys: bool = False,
+#         device=None,
+#     ):
+#         super().__init__(keys, allow_missing_keys)
+#         self.labels = labels
+#         self.device = device
+
+#     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
+#         # Set the labels dict in case no labels were provided
+#         data[LABELS_KEY] = self.labels
+
+#         for key in self.key_iterator(data):
+#             #print(data['label_names'].keys())
+#             if "label" in key:
+#                 label = data[key]
+#                 #print('label unique_1', torch.unique(label))
+#                 if isinstance(label, str):
+#                     # Special case since label has been defined to be a string in MONAILabel
+#                     raise AttributeError("Label is expected to be a tensor, but is a string.")
+
+
+#                 # Dictionary containing new label numbers
+#                 print('label unique_4', torch.unique(label))
+#                 new_labels = {}
+#                 label = torch.zeros(data[key].shape, device=self.device)
+#                 # Making sure the range values and number of labels are the same
+#                 for idx, (key_label, val_label) in enumerate(self.labels.items(), start=1):
+#                     print("key label", key_label)
+#                     print("val label", val_label)
+#                     print()
+#                     if key_label != "background":
+#                         print("not background", idx)
+#                         new_labels[key_label] = idx
+#                         label[data[key] == val_label] = idx
+
+#                     if key_label == "background":
+#                         print("background", idx)
+#                         new_labels["background"] = 0
+#                     else:
+#                         print("else")
+#                         new_labels[key_label] = idx
+#                         label[data[key] == val_label] = idx
+#                 print('label unique_5', torch.unique(label))
+#                 data[LABELS_KEY] = new_labels
+#                 if isinstance(data[key], MetaTensor):
+#                     data[key].array = label
+#                 else:
+#                     data[key] = label
+#             else:
+#                 raise UserWarning("Only the key label is allowed here!")
+#             #print('label unique_6', torch.unique(label))
+#         return data
 
 class AddMRIorCT():
     def __init__(
@@ -615,6 +925,9 @@ class AddGuidanceSignal(MapTransform):
                 raise UserWarning("This transform only applies to image key")
         raise UserWarning("image key has not been been found")
 
+
+
+
 class PrintShape(MapTransform):
 
 
@@ -631,9 +944,9 @@ class PrintShape(MapTransform):
     @timeit
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         if self.keys != None:
-            for key in self.key_iterator(data):
-                print(key, self.prev_transform, data[key].shape)
-        print(data.keys())
+            #for key in self.key_iterator(data):
+            print(self.prev_transform, torch.unique(data['label']))
+        #print(data.keys())
         return data
 
 class PrintKeys(MapTransform):

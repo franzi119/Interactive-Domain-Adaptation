@@ -24,7 +24,8 @@ from ignite.contrib.handlers.tensorboard_logger import (
 from ignite.engine import Events
 
 
-def init_tensorboard_logger(
+def init_tensorboard_logger_separate(
+    args,
     trainer,
     evaluator,
     optimizer,
@@ -35,16 +36,107 @@ def init_tensorboard_logger(
     network=None,
 ):
     tb_logger = TensorboardLogger(log_dir=f"{output_dir}/tensorboard")
+    #get trainer keys
+    #print("trainer keys", list(trainer.state.metrics.keys()))
+    #print(list(evaluator.state.metrics.keys()))
 
-    print(list(evaluator.state.metrics.keys()))
     tb_logger.attach_output_handler(
-        evaluator,
+        evaluator[0],
         event_name=Events.EPOCH_COMPLETED,
-        tag="1_validation",
+        tag=f"1_validation {args.source_dataset}",
         metric_names=all_val_metrics_names,
         global_step_transform=global_step_from_engine(trainer),
     )
+    tb_logger.attach_output_handler(
+        evaluator[1],
+        event_name=Events.EPOCH_COMPLETED,
+        tag=f"1_validation {args.target_dataset}",
+        metric_names=all_val_metrics_names,
+        global_step_transform=global_step_from_engine(trainer),
+    )
+    tb_logger.attach_output_handler(
+        trainer,
+        event_name=Events.EPOCH_COMPLETED,
+        tag="2_training",
+        metric_names=all_train_metrics_names,
+        global_step_transform=global_step_from_engine(trainer),
+    )
 
+    tb_logger.attach_output_handler(
+        trainer,
+        event_name=Events.ITERATION_COMPLETED,
+        tag="2_training",
+        output_transform=lambda x: x[0]["loss"],
+    )
+
+    tb_logger.attach_opt_params_handler(
+        trainer,
+        event_name=Events.ITERATION_STARTED,
+        optimizer=optimizer,
+        tag="3_params",
+    )
+
+    # for debugging
+    if debug and network is not None:
+        # Attach the logger to the trainer to log model's weights norm after each iteration
+        tb_logger.attach(
+            trainer,
+            event_name=Events.ITERATION_COMPLETED,
+            log_handler=WeightsScalarHandler(network),
+        )
+
+        # Attach the logger to the trainer to log model's weights as a histogram after each epoch
+        tb_logger.attach(
+            trainer,
+            event_name=Events.EPOCH_COMPLETED,
+            log_handler=WeightsHistHandler(network),
+        )
+
+        # Attach the logger to the trainer to log model's gradients norm after each iteration
+        tb_logger.attach(
+            trainer,
+            event_name=Events.ITERATION_COMPLETED,
+            log_handler=GradsScalarHandler(network),
+        )
+
+        # Attach the logger to the trainer to log model's gradients as a histogram after each epoch
+        tb_logger.attach(
+            trainer,
+            event_name=Events.EPOCH_COMPLETED,
+            log_handler=GradsHistHandler(network),
+        )
+    return tb_logger
+
+
+def init_tensorboard_logger_da(
+    args,
+    trainer,
+    evaluator,
+    optimizer,
+    all_train_metrics_names,
+    all_val_metrics_names,
+    output_dir,
+    debug=False,
+    network=None,
+):
+    tb_logger = TensorboardLogger(log_dir=f"{output_dir}/tensorboard")
+    #get trainer keys
+    #print("trainer keys", list(trainer.state.metrics.keys()))
+    #print(list(evaluator.state.metrics.keys()))
+    tb_logger.attach_output_handler(
+        evaluator[0],
+        event_name=Events.EPOCH_COMPLETED,
+        tag=f"1_validation_source {args.source_dataset}",
+        metric_names=all_val_metrics_names,
+        global_step_transform=global_step_from_engine(trainer),
+    )
+    tb_logger.attach_output_handler(
+        evaluator[1],
+        event_name=Events.EPOCH_COMPLETED,
+        tag=f"1_validation_target {args.target_dataset}",
+        metric_names=all_val_metrics_names,
+        global_step_transform=global_step_from_engine(trainer),
+    )
     tb_logger.attach_output_handler(
         trainer,
         event_name=Events.EPOCH_COMPLETED,
