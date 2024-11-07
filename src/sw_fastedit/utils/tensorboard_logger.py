@@ -10,6 +10,8 @@
 # limitations under the License.
 # By B.Sc. Matthias Hadlich, Karlsuhe Institute of Techonology #
 # matthiashadlich@posteo.de #
+# Further code extension and modification by B.Sc. Franziska Seiz, Karlsuhe Institute of Techonology #
+# franzi.seiz96@gmail.com #
 
 from __future__ import annotations
 
@@ -36,21 +38,19 @@ def init_tensorboard_logger_separate(
     network=None,
 ):
     tb_logger = TensorboardLogger(log_dir=f"{output_dir}/tensorboard")
-    #get trainer keys
-    #print("trainer keys", list(trainer.state.metrics.keys()))
-    #print(list(evaluator.state.metrics.keys()))
+
 
     tb_logger.attach_output_handler(
         evaluator[0],
         event_name=Events.EPOCH_COMPLETED,
-        tag=f"1_validation {args.source_dataset}",
+        tag=f"1_validation/{args.source_dataset}_source",
         metric_names=all_val_metrics_names,
         global_step_transform=global_step_from_engine(trainer),
     )
     tb_logger.attach_output_handler(
         evaluator[1],
         event_name=Events.EPOCH_COMPLETED,
-        tag=f"1_validation {args.target_dataset}",
+        tag=f"1_validation/{args.target_dataset}_target",
         metric_names=all_val_metrics_names,
         global_step_transform=global_step_from_engine(trainer),
     )
@@ -106,6 +106,7 @@ def init_tensorboard_logger_separate(
             log_handler=GradsHistHandler(network),
         )
     return tb_logger
+
 
 
 def init_tensorboard_logger_da(
@@ -120,20 +121,18 @@ def init_tensorboard_logger_da(
     network=None,
 ):
     tb_logger = TensorboardLogger(log_dir=f"{output_dir}/tensorboard")
-    #get trainer keys
-    #print("trainer keys", list(trainer.state.metrics.keys()))
-    #print(list(evaluator.state.metrics.keys()))
     tb_logger.attach_output_handler(
         evaluator[0],
         event_name=Events.EPOCH_COMPLETED,
-        tag=f"1_validation_source {args.source_dataset}",
+        tag=f"1_validation/{args.source_dataset}_source",
         metric_names=all_val_metrics_names,
         global_step_transform=global_step_from_engine(trainer),
+
     )
     tb_logger.attach_output_handler(
         evaluator[1],
         event_name=Events.EPOCH_COMPLETED,
-        tag=f"1_validation_target {args.target_dataset}",
+        tag=f"1_validation/{args.target_dataset}_target",
         metric_names=all_val_metrics_names,
         global_step_transform=global_step_from_engine(trainer),
     )
@@ -148,16 +147,35 @@ def init_tensorboard_logger_da(
     tb_logger.attach_output_handler(
         trainer,
         event_name=Events.ITERATION_COMPLETED,
-        tag="2_training",
-        output_transform=lambda x: x[0]["loss"],
+        tag="2_training/loss_seg",
+        output_transform=lambda x: x[0]["loss_seg"],
+    )
+    tb_logger.attach_output_handler(
+        trainer,
+        event_name=Events.ITERATION_COMPLETED,
+        tag="2_training/loss_dis",
+        output_transform=lambda x: x[0]["d_loss"],
+    )   
+    tb_logger.attach_output_handler(
+        trainer,
+        event_name=Events.ITERATION_COMPLETED,
+        tag="2_training/loss_adv",
+        output_transform=lambda x: x[0]["adv_loss"],
     )
 
     tb_logger.attach_opt_params_handler(
         trainer,
         event_name=Events.ITERATION_STARTED,
-        optimizer=optimizer,
-        tag="3_params",
+        optimizer=optimizer[0],
+        tag="3_params/seg_optimizer",
     )
+    tb_logger.attach_opt_params_handler(
+        trainer,
+        event_name=Events.ITERATION_STARTED,
+        optimizer=optimizer[1],
+        tag="3_params/dis_optimizer",
+    )
+    
 
     # for debugging
     if debug and network is not None:
@@ -189,3 +207,4 @@ def init_tensorboard_logger_da(
             log_handler=GradsHistHandler(network),
         )
     return tb_logger
+
