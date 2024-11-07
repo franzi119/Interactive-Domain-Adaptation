@@ -29,7 +29,7 @@ from ignite.engine import Events
 from monai.engines.utils import IterationEvents
 from monai.utils.profiling import ProfileHandler, WorkflowProfiler
 
-from sw_fastedit.api import get_trainer_dynunet, oom_observer
+from sw_fastedit.api import get_trainer_dualdynunet, oom_observer
 from sw_fastedit.utils.argparser import parse_args, setup_environment_and_adapt_args
 from sw_fastedit.utils.helper import GPU_Thread, TerminationHandler, get_gpu_usage, handle_exception
 from sw_fastedit.utils.tensorboard_logger import init_tensorboard_logger_separate
@@ -58,7 +58,7 @@ def run(args):
             additional_train_metrics,
             key_val_metric,
             additional_val_metrics,
-        ) = get_trainer_dynunet(args, resume_from=args.resume_from)
+        ) = get_trainer_dualdynunet(args, resume_from=args.resume_from)
         train_metric_names = list(key_train_metric.keys()) + list(additional_train_metrics.keys())
         val_metric_names = list(key_val_metric.keys()) + list(additional_val_metrics.keys())
 
@@ -79,7 +79,7 @@ def run(args):
         with tb_logger:
             with wp:
                 start_time = time.time()
-                for t, name in [(trainer, "trainer"), (evaluator[0], "evaluator 1"), (evaluator[1], "evaluator 2")]:
+                for t, name in [(trainer, "trainer"), (evaluator[0], "evaluator_source"), (evaluator[1], "evaluator_target")]:
                     for event in [
                         ["Epoch", wp, Events.EPOCH_STARTED, Events.EPOCH_COMPLETED],
                         [

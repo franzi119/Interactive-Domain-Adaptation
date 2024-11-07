@@ -13,6 +13,8 @@
 # zdravko.marinov@kit.edu #
 # Further code extension and modification by B.Sc. Matthias Hadlich, Karlsuhe Institute of Techonology #
 # matthiashadlich@posteo.de #
+# Further code extension and modification by B.Sc. Franziska Seiz, Karlsuhe Institute of Techonology #
+# franzi.seiz96@gmail.com #
 
 from __future__ import annotations
 import logging
@@ -61,6 +63,7 @@ def run(args):
         val_metric_names = list(key_val_metric.keys()) + list(additional_val_metrics.keys())
 
         tb_logger = init_tensorboard_logger_separate(
+            args,
             trainer,
             evaluator,
             trainer.optimizer,
@@ -76,7 +79,7 @@ def run(args):
         with tb_logger:
             with wp:
                 start_time = time.time()
-                for t, name in [(trainer, "trainer"), (evaluator, "evaluator")]:
+                for t, name in [(trainer, "trainer"), (evaluator[0], "evaluator"), (evaluator[1], "evaluator")]:
                     for event in [
                         ["Epoch", wp, Events.EPOCH_STARTED, Events.EPOCH_COMPLETED],
                         [
@@ -106,7 +109,8 @@ def run(args):
                     if not args.eval_only:
                         trainer.run()
                     else:
-                        evaluator.run()
+                        evaluator[0].run()
+                        evaluator[1].run()
                 except torch.cuda.OutOfMemoryError:
                     oom_observer(device, None, None, None)
                     logger.critical(get_gpu_usage(device, used_memory_only=False, context="ERROR"))
