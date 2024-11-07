@@ -14,8 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Callable
-import traceback
-import warnings
+
 
 import numpy as np
 import cv2
@@ -25,10 +24,8 @@ import monai
 from monai.data.meta_tensor import MetaTensor
 from monai.config import DtypeLike, KeysCollection
 from monai.data import image_writer
-from monai.data.image_reader import ImageReader
-from monai.transforms.io.array import LoadImage, SaveImage
 from monai.transforms.transform import MapTransform, Transform
-from monai.utils import GridSamplePadMode, ensure_tuple, ensure_tuple_rep
+from monai.utils import GridSamplePadMode, ensure_tuple_rep
 from monai.utils.enums import PostFix
 from monai.data.folder_layout import default_name_formatter, FolderLayout, FolderLayoutBase
 
@@ -37,25 +34,15 @@ from monai.config import DtypeLike, NdarrayOrTensor, PathLike
 from monai.data import image_writer
 from monai.data.meta_obj import get_track_meta
 from monai.data.folder_layout import FolderLayout, FolderLayoutBase, default_name_formatter
-from monai.data.image_reader import (
-    ImageReader,
-    ITKReader,
-    NibabelReader,
-    NrrdReader,
-    NumpyReader,
-    PILReader,
-    PydicomReader,
-)
+
 from monai.data.meta_tensor import MetaTensor
 from monai.data.utils import is_no_channel
 from monai.transforms.transform import Transform
-from monai.transforms.utility.array import EnsureChannelFirst
 from monai.utils import GridSamplePadMode
 from monai.utils import ImageMetaKey as Key
-from monai.utils import OptionalImportError, convert_to_dst_type, ensure_tuple, look_up_option, optional_import
+from monai.utils import convert_to_dst_type, look_up_option, optional_import
 
-from monai.utils import TransformBackends, convert_data_type, convert_to_tensor, ensure_tuple, look_up_option
-
+from monai.utils import TransformBackends, convert_data_type, convert_to_tensor,  look_up_option
 
 
 __all__ = ["LoadImaged", "LoadImageD", "LoadImageDict", "SaveImaged", "SaveImageD", "SaveImageDict"]
@@ -75,13 +62,9 @@ from pydoc import locate
 import torch
 from scipy.ndimage import gaussian_filter
 from monai.config import KeysCollection
-from monai.data import MetaTensor, PatchIterd
-from monai.losses import DiceLoss
+from monai.data import MetaTensor
 from monai.networks.layers import GaussianFilter
 from monai.transforms import (
-    Activationsd,
-    AsDiscreted,
-    Compose,
     MapTransform,
     Randomizable,
     LazyTransform,
@@ -96,13 +79,14 @@ from collections.abc import Hashable, Mapping, Sequence
 
 from monai.config.type_definitions import NdarrayOrTensor
 from monai.transforms.utility.array import AddExtremePointsChannel
-from monai.transforms.utils import extreme_points_to_image, get_extreme_points
+from monai.transforms.utils import get_extreme_points
 from monai.transforms.utils_pytorch_numpy_unification import concatenate
 from monai.utils.type_conversion import convert_to_dst_type
 from monai.transforms.utils import check_non_lazy_pending_ops
 from monai.transforms.utils_pytorch_numpy_unification import where
 from monai.transforms.utility.array import SplitDim
 from monai.transforms.traits import MultiSampleTrait
+from monai.transforms.utils_pytorch_numpy_unification import clip
 import numpy as np
 
 
@@ -110,12 +94,7 @@ import numpy as np
 from sw_fastedit.utils.enums import CommonKeys
 from sw_fastedit.utils.enums import GanKeys
 
-from sw_fastedit.click_definitions import LABELS_KEY, ClickGenerationStrategy
-from sw_fastedit.utils.distance_transform import get_random_choice_from_tensor, get_border_points_from_mask
-from monai.transforms.utils import distance_transform_edt
-from sw_fastedit.utils.helper import get_global_coordinates_from_patch_coordinates, get_tensor_at_coordinates, timeit
-#from FastGeodis import generalised_geodesic3d
-
+from sw_fastedit.utils.helper import  timeit
 
 logger = logging.getLogger("sw_fastedit")
 
@@ -127,10 +106,6 @@ def get_guidance_tensor_for_key_label(data, key_label, device) -> torch.Tensor:
         tmp_gui = torch.tensor(tmp_gui, dtype=torch.int32, device=device)
     assert type(tmp_gui) is torch.Tensor or type(tmp_gui) is MetaTensor
     return tmp_gui
-
-
-# TODO Franzi - one transform class - AddExtremePoints - already included in MONAI
-
 
 class AddExtremePointsChanneld(Randomizable, MapTransform):
     """
@@ -183,7 +158,11 @@ class AddExtremePointsChanneld(Randomizable, MapTransform):
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
         d = dict(data)
         label = d[self.label_key]
+        if torch.all(data['label'] == 0):
+            print(data['label_meta_dict']['filename_or_obj'])
+            raise ValueError(data['label_meta_dict']['filename_or_object'], "label is all background")
         self.randomize(label[0, :])
+
 
         d['guidance'] = self.points
         return d
@@ -214,20 +193,15 @@ def get_extreme_points(
         ValueError: When the input image does not have any foreground pixel.
     """
     check_non_lazy_pending_ops(img, name="get_extreme_points")
+    rand_state = None
+
     if rand_state is None:
         rand_state = np.random.random.__self__  # type: ignore
 
-    #image is label (0,1), get indices where label is not background
-    #print('img', img.shape)
-    #print('unique img', torch.unique(img))
-
+    if torch.all(img == 0):
+        raise ValueError("label is all background")
     indices = where(img != background)
 
-    #npindices = np.array(indices)
-    #print('indices', npindices.shape)
-    #print('unique', np.unique(npindices))
-
-    #indices[0] is x-axis, indices[1] is y-axis, indices[2] is z-axis
     if np.size(indices[0]) == 0:
         raise ValueError("get_extreme_points: no foreground object in mask!")
 
@@ -241,7 +215,6 @@ def get_extreme_points(
         """
 
         idx = where(indices[dim] == val)[0]
-
         idx = idx.cpu() if isinstance(idx, torch.Tensor) else idx
         idx = rand_state.choice(idx) if rand_state is not None else idx
         pt = []
@@ -273,7 +246,7 @@ class AddEmptySignalChannels(MapTransform):
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         # Set up the initial batch data
 
-        in_channels = len(data[LABELS_KEY]) 
+        in_channels = len(data[CommonKeys.LABELS_KEY]) 
         tmp_image = data[CommonKeys.IMAGE][0:0+1, ...] #load data into temp
         assert len(tmp_image.shape) == 4
         new_shape = list(tmp_image.shape)
@@ -288,34 +261,6 @@ class AddEmptySignalChannels(MapTransform):
         else:
             data[CommonKeys.IMAGE] = inputs
 
-        return data
-    
-class AddEmptySignalChannelsLabel(MapTransform):
-    """
-        Adds empty channels to the signal which will be filled with the guidance signal later.
-        E.g. for two labels: 1x192x192x256 -> 3x192x192x256
-    """
-    def __init__(self, device, keys: KeysCollection = None):
-        super().__init__(keys)
-        self.device = device
-
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        # Set up the initial batch data
-
-        in_channels = len(data[LABELS_KEY]) 
-        tmp_image = data[CommonKeys.LABEL][0 : 0 + 1, ...]
-        assert len(tmp_image.shape) == 4
-        new_shape = list(tmp_image.shape)
-        new_shape[0] = in_channels
-        # Set the signal to 0 for all input images
-        # image is on channel 0 of e.g. (1,128,128,128) and the signals get appended, so
-        # e.g. (3,128,128,128) for two labels
-        inputs = torch.zeros(new_shape) #, device=self.device)
-        inputs[0] = data[CommonKeys.LABEL][0]
-        if isinstance(data[CommonKeys.LABEL], MetaTensor):
-            data[CommonKeys.LABEL].array = inputs
-        else:
-            data[CommonKeys.LABEL] = inputs
         return data
 
 
@@ -568,8 +513,7 @@ class NormalizeLabelsInDatasetd(MapTransform):
 
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         # Set the labels dict if no labels were provided
-        data[LABELS_KEY] = self.labels
-        #print('label unique_0', torch.unique(data['label']))
+        data[CommonKeys.LABELS_KEY] = self.labels
         for key in self.key_iterator(data):
             if "label" in key:
                 label = data[key]
@@ -583,16 +527,13 @@ class NormalizeLabelsInDatasetd(MapTransform):
                 normalized_label = torch.zeros_like(label, device=self.device)
 
                 # Assign new labels based on the provided dictionary
-                #print('label unique_1', torch.unique(label))
                 for idx, (key_label, val_label) in enumerate(self.labels.items(), start=1):
-                    #print("key label", key_label, idx)
                     if key_label != "background":
                         new_labels[key_label] = idx
                         normalized_label[label == val_label] = idx
-                #print('label unique_2', torch.unique(normalized_label))
 
                 # Store the new labels dictionary
-                data[LABELS_KEY] = new_labels
+                data[CommonKeys.LABELS_KEY] = new_labels
 
                 # Update the label tensor
                 if isinstance(data[key], MetaTensor):
@@ -605,98 +546,97 @@ class NormalizeLabelsInDatasetd(MapTransform):
         return data
 
 
+    
+class ZScoreNormalize(Transform):
+    """
+    Apply z-score normalization to a numpy array or tensor based on the intensity distribution of the input.
 
+    This transform will normalize the input image so that its intensities have a mean of 0 and
+    a standard deviation of 1, across the specified axis or globally if no axis is specified.
 
-# class NormalizeLabelsInDatasetd(MapTransform):
-#     """
-#     Normalize label values according to label names dictionary
+    Args:
+        axis: The axis or axes to compute mean and standard deviation over. If None, z-score normalization
+              is applied to the entire image. If an integer or tuple of integers, normalization is done
+              along the specified axes.
+        epsilon: Small constant to avoid division by zero in the standard deviation computation.
+        dtype: Output data type, if None, same as input image. Defaults to float32.
+        channel_wise: If True, compute z-score normalization for each channel separately. Defaults to False.
+    """
 
-#     Args:
-#         keys: the ``keys`` parameter will be used to get and set the actual data item to transform
-#         labels: all label names
-#         allow_missing_keys: whether to ignore it if keys are missing.
-#         device: device this transform shall run on
-
-#     Returns: data and also the new labels will be stored in data with key LABELS_KEY
-#     """
-#     def __init__(
-#         self,
-#         keys: KeysCollection,
-#         labels=None,
-#         allow_missing_keys: bool = False,
-#         device=None,
-#     ):
-#         super().__init__(keys, allow_missing_keys)
-#         self.labels = labels
-#         self.device = device
-
-#     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-#         # Set the labels dict in case no labels were provided
-#         data[LABELS_KEY] = self.labels
-
-#         for key in self.key_iterator(data):
-#             #print(data['label_names'].keys())
-#             if "label" in key:
-#                 label = data[key]
-#                 #print('label unique_1', torch.unique(label))
-#                 if isinstance(label, str):
-#                     # Special case since label has been defined to be a string in MONAILabel
-#                     raise AttributeError("Label is expected to be a tensor, but is a string.")
-
-
-#                 # Dictionary containing new label numbers
-#                 print('label unique_4', torch.unique(label))
-#                 new_labels = {}
-#                 label = torch.zeros(data[key].shape, device=self.device)
-#                 # Making sure the range values and number of labels are the same
-#                 for idx, (key_label, val_label) in enumerate(self.labels.items(), start=1):
-#                     print("key label", key_label)
-#                     print("val label", val_label)
-#                     print()
-#                     if key_label != "background":
-#                         print("not background", idx)
-#                         new_labels[key_label] = idx
-#                         label[data[key] == val_label] = idx
-
-#                     if key_label == "background":
-#                         print("background", idx)
-#                         new_labels["background"] = 0
-#                     else:
-#                         print("else")
-#                         new_labels[key_label] = idx
-#                         label[data[key] == val_label] = idx
-#                 print('label unique_5', torch.unique(label))
-#                 data[LABELS_KEY] = new_labels
-#                 if isinstance(data[key], MetaTensor):
-#                     data[key].array = label
-#                 else:
-#                     data[key] = label
-#             else:
-#                 raise UserWarning("Only the key label is allowed here!")
-#             #print('label unique_6', torch.unique(label))
-#         return data
-
-class AddMRIorCT():
     def __init__(
         self,
-        keys: KeysCollection
-    ):
-        self.keys = keys
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        d = dict(data)
-        #logger.info(f"image file name: {d['image_meta_dict']['filename_or_obj']}")
-        #logger.info(f"label file name: {d['label_meta_dict']['filename_or_obj']}")
-        numbers = re.findall(r'\d+', d['image_meta_dict']['filename_or_obj'])
+        clip: bool = False,
+        dtype: DtypeLike = np.float32,
 
-        # Get the last number
-        last_number = numbers[-1] if numbers else None
+    ) -> None:
+        self.clip = clip
+        self.dtype = dtype
 
-        print(last_number)
-        if (int(last_number)>= 500):
-            d[GanKeys.GLABEL] = torch.zeros((1,1))
+
+    def _normalize(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        # Handle tensor and numpy arrays separately
+        if isinstance(img, torch.Tensor):
+            mean_val = torch.mean(img)
+            std_val = torch.std(img)
         else:
-            d[GanKeys.GLABEL] = torch.ones((1,1))
+            mean_val = np.mean(img)
+            std_val = np.std(img)
+        
+        img = (img - mean_val) / std_val
+        return img
+
+    def __call__(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        """
+        Apply the z-score normalization to `img`.
+        """
+        img = convert_to_tensor(img, track_meta=get_track_meta())
+        dtype = self.dtype or img.dtype
+        img = self._normalize(img=img)
+        if self.clip:
+            img = clip(img, -1.0, 1.0)
+        ret: NdarrayOrTensor = convert_data_type(img, dtype=dtype)[0]
+        return ret
+
+
+
+class ZScoreNormalized(MapTransform):
+    """
+    Dictionary-based wrapper of :py:class:`monai.transforms.ScaleIntensityRangePercentiles`.
+
+    Args:
+        keys: keys of the corresponding items to be transformed.
+            See also: monai.transforms.MapTransform
+        lower: lower percentile.
+        upper: upper percentile.
+        b_min: intensity target range min.
+        b_max: intensity target range max.
+        clip: whether to perform clip after scaling.
+        relative: whether to scale to the corresponding percentiles of [b_min, b_max]
+        channel_wise: if True, compute intensity percentile and normalize every channel separately.
+            default to False.
+        dtype: output data type, if None, same as input image. defaults to float32.
+        allow_missing_keys: don't raise exception if key is missing.
+    """
+
+    backend = ZScoreNormalize.backend
+
+    def __init__(
+        self,
+        keys: KeysCollection,
+        clip: bool = False,
+        dtype: DtypeLike = np.float32,
+        allow_missing_keys: bool = False,
+    ) -> None:
+        super().__init__(keys, allow_missing_keys)
+        self.scaler = ZScoreNormalize(clip, dtype)
+
+    def __call__(self, data: Mapping[Hashable, NdarrayOrTensor]) -> dict[Hashable, NdarrayOrTensor]:
+        d = dict(data)
+        for key in self.key_iterator(d):
+            d[key] = self.scaler(d[key])
         return d
+
+
 
 
 class AddGuidanceSignald(MapTransform):
@@ -729,8 +669,6 @@ class AddGuidanceSignald(MapTransform):
 
         if flag:
             signal = gaussian_filter(signal, sigma=self.sigma)
-            #print('min max signal',np.min(signal), np.max(signal))
-            #print('signal unique', np.unique(signal))
             signal = (signal - np.min(signal)) / (np.max(signal) - np.min(signal))
         return torch.Tensor(signal)[None]
 
@@ -843,20 +781,6 @@ class AddGuidanceSignal(MapTransform):
                 signal[0] = (signal[0] - torch.min(signal[0])) / (torch.max(signal[0]) - torch.min(signal[0]))
                 if self.disks:
                     signal[0] = (signal[0] > 0.1) * 1.0  # 0.1 with sigma=1 --> radius = 3, otherwise it is a cube
-
-                # if self.gdt:
-                #     geos = generalised_geodesic3d(image.unsqueeze(0).to(self.device),
-                #                                 signal[0].unsqueeze(0).unsqueeze(0).to(self.device),
-                #                                 self.spacing,
-                #                                 10e10,
-                #                                 1.0,
-                #                                 2)
-
-
-
-
-                #     signal[0] = geos[0][0]
-
             if not (torch.min(signal[0]).item() >= 0 and torch.max(signal[0]).item() <= 1.0):
                 raise UserWarning(
                     "[WARNING] Bad signal values",
@@ -893,7 +817,7 @@ class AddGuidanceSignal(MapTransform):
                 #assert image.is_cuda 
                 tmp_image = image[0 : 0 + self.number_intensity_ch, ...]
 
-                label_key = list(data[LABELS_KEY].keys())[0]
+                label_key = list(data[CommonKeys.LABELS_KEY].keys())[0]
                 label_guidance = get_guidance_tensor_for_key_label(data, label_key, self.device)
                 logger.debug(f"Converting guidance for label {label_key}:{label_guidance} into a guidance signal..")
 
@@ -926,8 +850,6 @@ class AddGuidanceSignal(MapTransform):
         raise UserWarning("image key has not been been found")
 
 
-
-
 class PrintShape(MapTransform):
 
 
@@ -944,28 +866,10 @@ class PrintShape(MapTransform):
     @timeit
     def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
         if self.keys != None:
-            #for key in self.key_iterator(data):
-            print(self.prev_transform, torch.unique(data['label']))
-        #print(data.keys())
+            print('shape', data['image_source'].shape, self.prev_transform)
+
         return data
-
-class PrintKeys(MapTransform):
-
-
-    def __init__(
-        self,
-        keys: KeysCollection = None,
-        allow_missing_keys: bool = False,
-        prev_transform: str = None
-
-    ):
-        super().__init__(keys, allow_missing_keys)
-        self.prev_transform = prev_transform
-
-    @timeit
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        print(data.keys())
-        return data
+    
     
 
 class SplitDimd(MapTransform, MultiSampleTrait):
@@ -1355,16 +1259,11 @@ class SaveImageSlices(Transform):
             meta_data: key-value pairs of metadata corresponding to the data.
         """
         meta_data = img.meta if isinstance(img, MetaTensor) else meta_data
-        #print('img', img.shape)
         kw = self.fname_formatter(meta_data, self)
         filename = self.folder_layout.filename(**kw)
-        #print('kw', kw)
-        #print('filename', filename)
-        #print('output_dir', self.output_dir)
-        #print('output_postfix', self.output_postfix)
+
         modified_path = filename.rsplit('/', 1)[0]
         modified_path = os.path.join(modified_path, self.output_postfix)
-        #print('modiefied path', modified_path)
         try:
             os.makedirs(modified_path, exist_ok=True)
             print(f"Directory created successfully: {modified_path}")
@@ -1376,130 +1275,4 @@ class SaveImageSlices(Transform):
             cv2.imwrite(os.path.join(modified_path, f'{i}_ep_slice_.png'), slice.detach().cpu().numpy().astype(np.uint8))
 
 
-        # if meta_data:
-        #     meta_spatial_shape = ensure_tuple(meta_data.get("spatial_shape", ()))
-        #     if len(meta_spatial_shape) >= len(img.shape):
-        #         self.data_kwargs["channel_dim"] = None
-        #     elif is_no_channel(self.data_kwargs.get("channel_dim")):
-        #         warnings.warn(
-        #             f"data shape {img.shape} (with spatial shape {meta_spatial_shape}) "
-        #             f"but SaveImage `channel_dim` is set to {self.data_kwargs.get('channel_dim')} no channel."
-        #         )
 
-
-        # for i in range(img[key].shape[2]):
-        #     slice = img[key][0][0][i]*255
-        #     cv2.imwrite(os.path.join(self.output_dir, self.output_postfix, '{i}_ep_slice_.png'), slice.detach().cpu().numpy().astype(np.uint8))
-
-        # err = []
-        # for writer_cls in self.writers:
-        #     try:
-        #         writer_obj = writer_cls(**self.init_kwargs)
-        #         writer_obj.set_data_array(data_array=img, **self.data_kwargs)
-        #         writer_obj.set_metadata(meta_dict=meta_data, **self.meta_kwargs)
-        #         writer_obj.write(filename, **self.write_kwargs)
-        #         self.writer_obj = writer_obj
-        #     except Exception as e:
-        #         err.append(traceback.format_exc())
-        #         logging.getLogger(self.__class__.__name__).debug(e, exc_info=True)
-        #         logging.getLogger(self.__class__.__name__).info(
-        #             f"{writer_cls.__class__.__name__}: unable to write {filename}.\n"
-        #         )
-        #     else:
-        #         self._data_index += 1
-        #         if self.savepath_in_metadict and meta_data is not None:
-        #             meta_data["saved_to"] = filename
-        #         return img
-        # msg = "\n".join([f"{e}" for e in err])
-        # raise RuntimeError(
-        #     f"{self.__class__.__name__} cannot find a suitable writer for {filename}.\n"
-        #     "    Please install the writer libraries, see also the installation instructions:\n"
-        #     "    https://docs.monai.io/en/latest/installation.html#installing-the-recommended-dependencies.\n"
-        #     f"   The current registered writers for {self.output_ext}: {self.writers}.\n{msg}"
-        # )
-
-
-
-
-
-
-class SplitPredsLabeld(MapTransform):
-    """
-    Split preds and labels for individual evaluation
-    """
-
-    @timeit
-    def __call__(self, data: Mapping[Hashable, torch.Tensor]) -> Mapping[Hashable, torch.Tensor]:
-        for key in self.key_iterator(data):
-            if key == "pred":
-                for idx, (key_label, _) in enumerate(data[LABELS_KEY].items()):
-                    if key_label != "background":
-                        data[f"pred_{key_label}"] = data[key][idx + 1, ...][None]
-                        data[f"label_{key_label}"] = data["label"][idx + 1, ...][None]
-            elif key != "pred":
-                logger.info("This transform is only for pred key")
-        return data
-
-
-class FlipChanneld(MapTransform, InvertibleTransform, LazyTransform):
-    """
-    A transformation class to flip specified channels along the specified spatial axis in tensor-like data.
-    This is an invertible transform and can be applied lazily.
-
-    Args:
-        keys: Keys specifying the data in the dictionary to be processed.
-        spatial_axis: Spatial axis or axes along which flipping should occur.
-        channels: Channels to be flipped.
-        allow_missing_keys: If True, allows for keys in `keys` to be missing in the input dictionary.
-        lazy: If True, the transform is applied lazily.
-    """
-
-    def __init__(
-        self,
-        keys: KeysCollection,
-        spatial_axis: Sequence[int] | int | None = None,
-        channels: Sequence[int] | int | None = None,
-        allow_missing_keys: bool = False,
-        lazy: bool = False,
-    ) -> None:
-        MapTransform.__init__(self, keys, allow_missing_keys)
-        LazyTransform.__init__(self, lazy=lazy)
-        self.flipper = Flip(spatial_axis=spatial_axis)
-        self.channels = channels
-
-    @LazyTransform.lazy.setter  # type: ignore
-    def lazy(self, val: bool):
-        self.flipper.lazy = val
-        self._lazy = val
-
-
-
-    def __call__(self, data: Mapping[Hashable, torch.Tensor], lazy: bool | None = None) -> dict[Hashable, torch.Tensor]:
-        """
-        Args:
-            data: a dictionary containing the tensor-like data to be processed. The ``keys`` specified
-                in this dictionary must be tensor like arrays that are channel first and have at most
-                three spatial dimensions
-            lazy: a flag to indicate whether this transform should execute lazily or not
-                during this call. Setting this to False or True overrides the ``lazy`` flag set
-                during initialization for this call. Defaults to None.
-
-        Returns:
-            a dictionary containing the transformed data, as well as any other data present in the dictionary
-        """
-        d = dict(data)
-        lazy_ = self.lazy if lazy is None else lazy
-        for key in self.key_iterator(d):
-            for channel in self.channels:
-                d[key][channel:channel+1] = self.flipper(d[key][channel:channel+1], lazy=lazy_)
-        return d
-
-
-
-
-    def inverse(self, data: Mapping[Hashable, torch.Tensor]) -> dict[Hashable, torch.Tensor]:
-        d = dict(data)
-        for key in self.key_iterator(d):
-            for channel in self.channels:
-                d[key][channel:channel+1] = self.flipper.inverse(d[key][channel:channel+1])
-        return d
