@@ -337,6 +337,7 @@ class CommonKeys(StrEnum):
     `INFO` is some useful information during training or evaluation, like loss value, etc.
 
     """
+    LABELS_KEY = "label_names"
     IMAGE = "image"
     IMAGE_SOURCE = "image_source"
     IMAGE_TARGET = "image_target"
@@ -346,8 +347,12 @@ class CommonKeys(StrEnum):
     PRED = "pred"
     PRED_SEG = "pred_seg"
     PRED_EP  = "pred_ep"
-    PRED_SEG_EP = "pred_seg_ep"
+    SEG_EP = "seg_ep"
     LOSS = "loss"
+    LOSS_EP = "loss_ep"
+    LOSS_SEG = "loss_seg"
+    LOSS_EP_ADV = "loss_ep_adv"
+    LOSS_SEG_ADV = "loss_seg_adv"
     METADATA = "metadata"
 
 
@@ -358,8 +363,8 @@ class GanKeys(StrEnum):
     """
 
     IMG = 'image'
-    REALS = "reals"
-    FAKES = "fakes"
+    SOURCE = "source"
+    TARGET = "target"
     LATENTS = "latents"
     ADVLOSS = "adv_loss"
     GLOSS = "g_loss"

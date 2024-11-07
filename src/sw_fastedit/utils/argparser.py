@@ -27,8 +27,6 @@ import uuid
 
 import torch
 
-from sw_fastedit.transforms import ClickGenerationStrategy
-from sw_fastedit.click_definitions import StoppingCriterion
 from sw_fastedit.utils.helper import get_actual_cuda_index_of_device, get_git_information, gpu_usage
 from sw_fastedit.utils.logger import get_logger, setup_loggers
 
@@ -42,6 +40,8 @@ def parse_args():
     parser.add_argument(
         "-d", "--data_dir", default="None", help="Only used for debugging Niftii files, so usually not required"
     )
+
+    parser.add_argument("--organ", type=int, default=10, choices=range(1,15), help="Organ to segment")
     # a subdirectory is created below cache_dir for every run
     parser.add_argument(
         "-c",
@@ -62,13 +62,6 @@ def parse_args():
         default=False,
         action="store_true",
         help="To save the prediction in the output_dir/prediction if that is desired",
-    )
-    parser.add_argument(
-        "-x",
-        "--split",
-        type=float,
-        default=0.8,
-        help="Split into training and validation samples, default is 80% training samples.",
     )
     parser.add_argument(
         "--gpu_size",
@@ -114,7 +107,7 @@ def parse_args():
         "-n",
         "--network",
         default="dynunet",
-        choices=["dynunet", "smalldynunet", "bigdynunet"],
+        choices=["dynunet"],
     )
     parser.add_argument(
         "-in",
@@ -127,29 +120,29 @@ def parse_args():
     parser.add_argument("--source_dataset", default="image_ct")
     parser.add_argument("--target_dataset", default="image_mri")
 
-    #parser.add_argument("--sw_roi_size", default="(128,128,128)", action="store")
-    # crop_size multiples of sliding window size (128,128,128) with overlap 0.25 (default): 128, 224, 320, 416, 512
-    #parser.add_argument("--train_crop_size", default="(224,224,224)", action="store")
-    #parser.add_argument("--train_crop_size", default="None", action="store")
-    #parser.add_argument("--val_crop_size", default="None", action="store")
-    # 1 on 24 Gb, 8 on 50 Gb
-    #parser.add_argument("--train_sw_batch_size", type=int, default=1)
-    #parser.add_argument("--val_sw_batch_size", type=int, default=1)
-    #parser.add_argument("--train_sw_overlap", type=float, default=0.25)
-    # Reduce this if you run into OOMs
-    #parser.add_argument("--val_sw_overlap", type=float, default=0.25)
+    parser.add_argument("--same_normalization", default=False, action="store_true")
+
     parser.add_argument("--sw_cpu_output", default=False, action="store_true")
 
     # Training
-    parser.add_argument("-a", "--amp", default=False, action="store_true")
+    parser.add_argument("-a", "--amp", default=True, action="store_true")
     parser.add_argument("--num_workers", type=int, default=1)
     parser.add_argument("-e", "--epochs", type=int, default=100)
     # LOSS
     # If learning rate is set to 0.001, the DiceCELoss will produce Nans very quickly
-    parser.add_argument("-lr", "--learning_rate", type=float, default=0.0001)
+    parser.add_argument("-lr", "--learning_rate", type=float, default=1e-4)
+    parser.add_argument("--eta_min", type=float, default=1e-7)
+    parser.add_argument("-lr_dis", "--learning_rate_dis", type=float, default=1e-5)
+    parser.add_argument("--eta_min_dis", type=float, default=1e-5)
+    parser.add_argument("-lr_ep", "--learning_rate_ep", type=float, default=1e-4)
+    parser.add_argument("--eta_min_ep", type=float, default=1e-7)
+    parser.add_argument("-lr_adv", "--learning_rate_adv", type=float, default=1e-5)
+    parser.add_argument("--eta_min_adv", type=float, default=1e-8)
+    parser.add_argument("--lambda_adv", type=float, default=1e-4)
     parser.add_argument("--optimizer", default="Adam", choices=["Adam", "Novograd"])
     parser.add_argument("--loss_ugda", default="DiceCEL2Loss", choices=["DiceCEL2Loss"])
-    parser.add_argument("--loss_dis", default="CrossEntropy", choices=["CrossEntropy"])
+    parser.add_argument("--loss_pada", default="DiceCeAdvLoss", choices=["DiceCeAdvLoss"])
+    parser.add_argument("--loss_dis", default="BCE", choices=["BCE"])
     parser.add_argument("--loss_dynunet", default="DiceCELoss", choices=["DiceCELoss"])
     parser.add_argument("--loss_mse", default="MSELoss", choices=["MSELoss"])
     parser.add_argument(
@@ -160,13 +153,15 @@ def parse_args():
     parser.add_argument("--loss_dont_include_background", default=True, action="store_false")
     parser.add_argument("--loss_no_squared_pred", default=False, action="store_true")
 
-    #LOSS extreme points
+    #extreme points
     parser.add_argument("--loss_ep", default="mean_squared_error")
     parser.add_argument("--optimizer_ep", default="Adam")
-    parser.add_argument("-lr_dis", "--learning_rate_dis", type=float, default=0.0003)
+    parser.add_argument("--backprop_ep_separate", default="False", action="store_true") #for dualDynunet
+    parser.add_argument("-ep", "--extreme_points", default=False, action="store_true") # for pada
+    parser.add_argument("-pred_ep", "--pred_ep", default=False, action="store_true") # for dextr
 
     parser.add_argument("--resume_from", type=str, default="None")
-    # Use this parameter to change the scheduler..
+    # Use this parameter to change the scheduler.. (when using a pre-trained network for pada or ugda)
     parser.add_argument("--resume_override_scheduler", default=False, action="store_true")
     parser.add_argument("--scale_intensity_ranged", default=False, action="store_true")
     parser.add_argument("--additional_metrics", default=False, action="store_true")
@@ -175,59 +170,18 @@ def parse_args():
 
     # Logging
     parser.add_argument("-f", "--val_freq", type=int, default=1)  # Epoch Level
-    parser.add_argument("--save_interval", type=int, default=3)  # Save checkpoints every x epochs
+    parser.add_argument("--save_interval", type=int, default=10)  # Save checkpoints every x epochs
 
     parser.add_argument("--eval_only", default=False, action="store_true")
+    #include optimizer and scheduler in saving and loading, only works when using the same train script
+    parser.add_argument("--save_load_optimizer_scheduler", default=False, action="store_true")
     parser.add_argument("--save_nifti", default=False, action="store_true")
-
-    # Interactions
-    parser.add_argument(
-        "--non_interactive",
-        default=True,
-        action="store_true",
-        help="Default training of neural network. Don't add any guidance channels, do normal backprop only.",
-    )
-    parser.add_argument("-it", "--max_train_interactions", type=int, default=1)
-    parser.add_argument("-iv", "--max_val_interactions", type=int, default=1)
-    parser.add_argument("-dpt", "--deepgrow_probability_train", type=float, default=1.0)
-    parser.add_argument("-dpv", "--deepgrow_probability_val", type=float, default=1.0)
-
-    parser.add_argument("--load_from_json", default=False, action="store_true")
-    parser.add_argument("--json_dir", type=str, default=None)
-
-    # Discriminator
-    parser.add_argument("-nd", "--no_discriminator", default=False, action="store_true")
-
-    # extreme points
-    parser.add_argument("-nep", "--no_extreme_points", default=False, action="store_true")
 
     # Guidance Signal Hyperparameters
     parser.add_argument("--sigma", type=int, default=7)
     parser.add_argument("--no_disks", default=False, action="store_true")
     parser.add_argument("--gdt", default=False, action="store_true")
 
-
-    # Guidance Signal Click Generation - for details see the mappings below
-    parser.add_argument("-tcg", "--train_click_generation", type=int, default=2, choices=[1, 2])
-    parser.add_argument("-vcg", "--val_click_generation", type=int, default=1, choices=[1, 2])
-    parser.add_argument(
-        "-tcgsc",
-        "--train_click_generation_stopping_criterion",
-        type=int,
-        default=1,
-        choices=[1, 2, 3, 4, 5],
-    )
-    # Usually this setting should be at 1, so max_iter
-    parser.add_argument(
-        "-vcgsc",
-        "--val_click_generation_stopping_criterion",
-        type=int,
-        default=1,
-        choices=[1, 2, 3, 4, 5],
-    )
-    # only needed for training
-    parser.add_argument("--train_loss_stopping_threshold", type=float, default=0.1)
-    parser.add_argument("--train_iteration_probability", type=float, default=0.5)
 
     # Set up additional information concerning the environment and the way the script was called
     args = parser.parse_args()
@@ -241,7 +195,8 @@ def setup_environment_and_adapt_args(args):
 
     device = torch.device(f"cuda:{args.gpu}")
     
-    args.labels = {"liver":7, "background": 0}
+    args.labels = {"organ":args.organ, "background": 0}
+    #AMOS dataset
     #1 spleen
     #2 right kidney
     #3 left kidney
@@ -307,35 +262,6 @@ def setup_environment_and_adapt_args(args):
         if not os.path.exists(args.data_dir):
             pathlib.Path(args.data_dir).mkdir(parents=True)
 
-    # Training only, so done on the patch of size train_crop_size
-    train_click_generation_mapping = {
-        1: ClickGenerationStrategy.GLOBAL_NON_CORRECTIVE,  # "non-corrective",
-        2: ClickGenerationStrategy.GLOBAL_CORRECTIVE,  # "corrective",
-    }
-    args.train_click_generation = train_click_generation_mapping[args.train_click_generation]
-    # Validation, so everything is done on the full volume
-    val_click_generation_mapping = {
-        1: ClickGenerationStrategy.GLOBAL_CORRECTIVE,  # "patch-based corrective",
-        # Sample directly from the global error
-        2: ClickGenerationStrategy.PATCH_BASED_CORRECTIVE,  # "global corrective",
-    }
-    args.val_click_generation = val_click_generation_mapping[args.val_click_generation]
-
-    args.train_click_generation_stopping_criterion = StoppingCriterion(args.train_click_generation_stopping_criterion)
-    args.val_click_generation_stopping_criterion = StoppingCriterion(args.val_click_generation_stopping_criterion)
-
-    # NOTE Added for backwards compatibility with DeepGrow. Manual override of some settings, thus need to accept it
-    if args.deepgrow_probability_val != 1 or args.deepgrow_probability_val != 1:
-        logger.warning("############## DeepGrow mode activated ###################")
-        logger.warning(
-            """args.train_click_generation, args.val_click_generation, args.train_click_generation_stopping_criterion
-             and args.val_click_generation_stopping_criterion will be overwritten by this option"""
-        )
-        logger.warning("##########################################################")
-        args.train_click_generation_stopping_criterion = StoppingCriterion.DEEPGROW_PROBABILITY
-        args.val_click_generation_stopping_criterion = StoppingCriterion.DEEPGROW_PROBABILITY
-        args.train_click_generation = ClickGenerationStrategy.DEEPGROW_GLOBAL_CORRECTIVE
-        args.val_click_generation = ClickGenerationStrategy.DEEPGROW_GLOBAL_CORRECTIVE
 
     args.real_cuda_device = get_actual_cuda_index_of_device(torch.device(f"cuda:{args.gpu}"))
 
