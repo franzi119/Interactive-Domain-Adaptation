@@ -63,12 +63,7 @@ def parse_args():
         action="store_true",
         help="To save the prediction in the output_dir/prediction if that is desired",
     )
-    parser.add_argument(
-        "--gpu_size",
-        default="None",
-        choices=["None", "small", "medium", "large"],
-        help="Influcences some performance options of the code",
-    )
+
     parser.add_argument(
         "--limit_gpu_memory_to",
         type=float,
@@ -270,15 +265,14 @@ def setup_environment_and_adapt_args(args):
 
     args.cwd = os.getcwd()
 
-    if args.gpu_size == "None":
-        nv_total = gpu_usage(device, used_memory_only=False)[3]
-        if nv_total < 25:
-            args.gpu_size = "small"
-        elif nv_total < 55:
-            args.gpu_size = "medium"
-        else:
-            args.gpu_size = "large"
-        logger.info(f"Selected GPU size: {args.gpu_size}, since GPU Memory: {nv_total} GB")
+    nv_total = gpu_usage(device, used_memory_only=False)[3]
+    if nv_total < 25:
+        args.gpu_size = "small"
+    elif nv_total < 55:
+        args.gpu_size = "medium"
+    else:
+        args.gpu_size = "large"
+    logger.info(f"Selected GPU size: {args.gpu_size}, since GPU Memory: {nv_total} GB")
 
 
     return args, logger

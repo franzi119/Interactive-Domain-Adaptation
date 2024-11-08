@@ -313,8 +313,6 @@ def get_network_ugda(labels: Iterable, discriminator: bool = True, extreme_point
 
 
 
-
-
 def get_inferers():
     """
     Retrieves training and evaluation inferers based on the specified inference strategy.
@@ -365,7 +363,7 @@ def get_scheduler(optimizer, scheduler_str: str, epochs_to_run: int, eta_min: fl
     return lr_scheduler
 
 
-def get_val_handlers(inferer: str, gpu_size: str, *,garbage_collector=True, non_interactive=False):
+def get_val_handlers(*,garbage_collector=True):
     """
     Retrieves a list of event handlers for validation in a MONAI training workflow.
 
@@ -389,12 +387,8 @@ def get_val_handlers(inferer: str, gpu_size: str, *,garbage_collector=True, non_
     References:
         [1] https://github.com/Project-MONAI/MONAI/issues/3423
 
-    TODO Franzi:
-        # Set the iterations = 1 and it is done
     """
-    #every_x_iterations = 1 
 
-    #val_trigger_event = Events.ITERATION_COMPLETED(every=every_x_iterations) if gpu_size == "large" else Events.ITERATION_COMPLETED
 
     # define event-handlers for engine
     val_handlers = [
@@ -415,10 +409,7 @@ def get_train_handlers(
     evaluator,
     val_freq,
     eval_only: bool,
-    inferer: str,
-    gpu_size: str,
     garbage_collector=True,
-    non_interactive=False,
 ):
     """
     Retrieves a list of event handlers for training in a MONAI training workflow.
@@ -475,10 +466,7 @@ def get_train_handlers_separate(
     evaluator_target,
     val_freq,
     eval_only: bool,
-    inferer: str,
-    gpu_size: str,
     garbage_collector=True,
-    non_interactive=False,
 ):
     """
     Retrieves a list of event handlers for training in a MONAI training workflow.
@@ -540,10 +528,7 @@ def get_train_handlers_separate_adv(
     evaluator_target,
     val_freq,
     eval_only: bool,
-    inferer: str,
-    gpu_size: str,
     garbage_collector=True,
-    non_interactive=False,
 ):
     """
     Retrieves a list of event handlers for training in a MONAI training workflow.
@@ -555,9 +540,7 @@ def get_train_handlers_separate_adv(
         eval_only (bool): Flag indicating if training is for evaluation only.
         sw_roi_size (List): The region of interest size for the sliding window strategy.
         inferer (str): The type of inferer, e.g., "SimpleInferer" or "SlidingWindowInferer".
-        gpu_size (str): The GPU size, one of "large" or any other value.
         garbage_collector (bool, optional): Whether to include the GarbageCollector event handler (default is True).
-        non_interactive (bool, optional): Whether the environment is non-interactive (default is False).
 
     Returns:
         List[Event_Handler]: A list of event handlers for training in a MONAI training workflow.
@@ -727,8 +710,6 @@ def get_trainer_ep(
         additional_metrics=val_additional_metrics,
         metric_cmp_fn=lambda current_metric, previous_best: current_metric < previous_best,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ), 
     )
@@ -743,8 +724,6 @@ def get_trainer_ep(
         additional_metrics=val_additional_metrics,
         metric_cmp_fn=lambda current_metric, previous_best: current_metric < previous_best,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ), 
     )
@@ -771,8 +750,6 @@ def get_trainer_ep(
         evaluator_2,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -928,8 +905,7 @@ def get_trainer_ep_source(
         additional_metrics=val_additional_metrics,
         metric_cmp_fn=lambda current_metric, previous_best: current_metric < previous_best,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
+
             garbage_collector=True,
         ), 
     )
@@ -944,8 +920,6 @@ def get_trainer_ep_source(
         additional_metrics=val_additional_metrics,
         metric_cmp_fn=lambda current_metric, previous_best: current_metric < previous_best,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ), 
     )
@@ -972,8 +946,6 @@ def get_trainer_ep_source(
         evaluator_2,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -1130,8 +1102,6 @@ def get_trainer_dynunet(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1145,8 +1115,6 @@ def get_trainer_dynunet(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1172,8 +1140,6 @@ def get_trainer_dynunet(
         evaluator_2,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -1323,8 +1289,6 @@ def get_trainer_dynunet_source(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1339,8 +1303,6 @@ def get_trainer_dynunet_source(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1367,8 +1329,6 @@ def get_trainer_dynunet_source(
         evaluator_target,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -1526,8 +1486,6 @@ def get_trainer_dualdynunet(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1543,8 +1501,6 @@ def get_trainer_dualdynunet(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1570,8 +1526,6 @@ def get_trainer_dualdynunet(
         evaluator_target,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -1715,8 +1669,6 @@ def get_trainer_dextr(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1730,8 +1682,6 @@ def get_trainer_dextr(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1758,8 +1708,6 @@ def get_trainer_dextr(
         evaluator_2,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -1914,8 +1862,6 @@ def get_trainer_dextr_source(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1929,8 +1875,6 @@ def get_trainer_dextr_source(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -1957,8 +1901,6 @@ def get_trainer_dextr_source(
         evaluator_2,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -2120,8 +2062,6 @@ def get_trainer_pada(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -2137,8 +2077,6 @@ def get_trainer_pada(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -2165,8 +2103,6 @@ def get_trainer_pada(
         evaluator_target,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
@@ -2331,8 +2267,6 @@ def get_trainer_ugda(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -2348,8 +2282,6 @@ def get_trainer_ugda(
         key_val_metric=val_key_metric,
         additional_metrics=val_additional_metrics,
         val_handlers=get_val_handlers(
-            inferer=args.inferer,
-            gpu_size=args.gpu_size,
             garbage_collector=True,
         ),
     )
@@ -2376,8 +2308,6 @@ def get_trainer_ugda(
         evaluator_target,
         args.val_freq,
         args.eval_only,
-        args.inferer,
-        args.gpu_size,
         garbage_collector=True,
     )
 
